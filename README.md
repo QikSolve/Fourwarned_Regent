@@ -22,7 +22,7 @@ The assessment below compares current implementation (`src/**`) against those go
 | Deterministic simulation ownership | Simulation, not AI, owns game-state changes | Implemented deterministic `resolveTurn`/simulation path | ✅ Implemented | None for MVP scope |
 | Persistence layer | Architecture doc expects campaign persistence (Postgres) | In-memory Zustand state only (prototype session state) | ⚠️ Partial | Add campaign persistence + hydration path |
 | AI orchestration layer | Architecture expects structured AI endpoints and schema validation | Stub endpoints exist, but gameplay currently runs with deterministic local generation | ⚠️ Partial | Wire endpoints into runtime orchestration and validated payload flow |
-| Folder alignment | Architecture sample still references top-level `/app`, `/lib`, `/types` | Project is under `src/` (`src/app`, `src/lib`, `src/types`) | ⚠️ Drift | Update architecture doc folder examples to match `src/` layout |
+| Folder alignment | Architecture sample uses `src/` paths | Project is under `src/` (`src/app`, `src/lib`, `src/types`) | ✅ Implemented | None |
 
 ### Recommended Next Changes (Prioritized)
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { Advisor } from '@/lib/gameTypes';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
+import { getAdvisorCounsel, type NormalizedAdvisorCounsel } from '@/lib/ai/runtime';
 
 interface AdvisorCardProps {
   advisor: Advisor;
@@ -24,11 +25,36 @@ function SmallBar({ value, color }: { value: number; color: string }) {
 
 export function AdvisorCard({ advisor }: AdvisorCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [counsel, setCounsel] = useState<NormalizedAdvisorCounsel | null>(null);
+  const [isLoadingCounsel, setIsLoadingCounsel] = useState(false);
   const openProceduresModal = useGameStore(s => s.openProceduresModal);
   const procedures = useGameStore(s => s.procedures);
+  const metrics = useGameStore(s => s.metrics);
   
   const statusStyle = statusColors[advisor.status];
   const assignedProcs = procedures.filter(p => p.assignedTo === advisor.id);
+
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+
+    setIsLoadingCounsel(true);
+    getAdvisorCounsel(advisor, metrics)
+      .then(result => {
+        if (!cancelled) {
+          setCounsel(result);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingCounsel(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, advisor, metrics]);
 
   return (
     <div
@@ -101,6 +127,28 @@ export function AdvisorCard({ advisor }: AdvisorCardProps) {
               <div className="text-xs" style={{ color: '#6b5744' }}>
                 {assignedProcs.map(p => p.name).join(', ')}
               </div>
+            )}
+          </div>
+
+          <div className="mb-3 rounded border p-2" style={{ borderColor: '#c4a882', backgroundColor: '#ede0c4' }}>
+            <div className="text-xs font-medium mb-1" style={{ color: '#6b5744' }}>
+              Current Counsel
+              {counsel && (
+                <span className="ml-1" style={{ color: counsel.source === 'ai' ? '#065f46' : '#92400e' }}>
+                  ({counsel.source === 'ai' ? 'AI' : 'Fallback'})
+                </span>
+              )}
+            </div>
+            {isLoadingCounsel ? (
+              <div className="text-xs" style={{ color: '#6b5744' }}>Preparing counsel...</div>
+            ) : counsel ? (
+              <div className="space-y-1">
+                <p className="text-xs" style={{ color: '#2c1810' }}><strong>Concern:</strong> {counsel.concern}</p>
+                <p className="text-xs" style={{ color: '#2c1810' }}><strong>Recommendation:</strong> {counsel.recommendation}</p>
+                <p className="text-xs" style={{ color: '#2c1810' }}><strong>Risk:</strong> {counsel.risk}</p>
+              </div>
+            ) : (
+              <div className="text-xs" style={{ color: '#6b5744' }}>No counsel available.</div>
             )}
           </div>
 
