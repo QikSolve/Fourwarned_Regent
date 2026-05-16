@@ -15,6 +15,8 @@ const RequestSchema = z.object({
   metrics: KingdomMetricsSchema,
   messages: z.array(ChatMessageSchema).max(50),
   userMessage: z.string().min(1).max(1000),
+  tone: z.enum(['Concise', 'Analytical', 'Collaborative']).default('Concise'),
+  isQuickFollowUp: z.boolean().optional(),
 }).strict();
 
 const FOLLOW_UP_PATTERNS: Record<string, string> = {
@@ -24,12 +26,29 @@ const FOLLOW_UP_PATTERNS: Record<string, string> = {
   'explain more': 'Provide a more detailed explanation.',
 };
 
-function buildSystemPrompt(advisor: Advisor, metrics: KingdomMetrics): string {
+function buildSystemPromptWithTone(advisor: Advisor, metrics: KingdomMetrics, tone: 'Concise' | 'Analytical' | 'Collaborative'): string {
+  const toneInstruction = tone === 'Analytical'
+    ? 'Adopt an analytical tone and explain trade-offs and second-order effects.'
+    : tone === 'Collaborative'
+    ? 'Adopt a collaborative tone and present options with clear next steps.'
+    : 'Keep your response concise and direct.';
   return `You are ${advisor.title} ${advisor.name}, a royal advisor to the monarch of a medieval kingdom.
 Your bias is "${advisor.bias}". Your region is "${advisor.region}".
 Kingdom metrics — Food: ${metrics.food}, Morale: ${metrics.morale}, Gold: ${metrics.gold}, Threat: ${metrics.threat}, Admin Strain: ${metrics.adminStrain}.
-Speak in first person as the advisor. Keep responses concise (2–4 sentences). Stay in character.
+Speak in first person as the advisor. ${toneInstruction} Stay in character.
 Always address the monarch respectfully. Base your counsel on your bias and the current kingdom metrics.`;
+}
+
+const MODERATION_PATTERNS = [
+  /\bkill\b/i,
+  /\bmurder\b/i,
+  /\bself[- ]?harm\b/i,
+  /\bsuicide\b/i,
+  /\bgenocide\b/i,
+];
+
+function shouldModerate(message: string): boolean {
+  return MODERATION_PATTERNS.some(pattern => pattern.test(message));
 }
 
 function buildFallbackReply(advisor: Advisor, userMessage: string): string {
@@ -62,11 +81,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { advisor, metrics, messages, userMessage } = parsed.data;
+    const { advisor, metrics, messages, userMessage, tone, isQuickFollowUp } = parsed.data;
+    incrementCounter('chatMessageSent');
+    if (messages.length === 0) {
+      incrementCounter('chatThreadStarted');
+    }
+    if (isQuickFollowUp) {
+      incrementCounter('chatQuickChipSelected');
+    }
+
+    if (shouldModerate(userMessage)) {
+      incrementCounter('chatModerationBlocked');
+      return NextResponse.json({
+        reply: 'I cannot assist with harmful requests. Please rephrase your question toward governance strategy, risk management, or public safety.',
+        source: 'moderated',
+      });
+    }
 
     if (process.env.OPENAI_API_KEY) {
       try {
-        const systemPrompt = buildSystemPrompt(advisor as Advisor, metrics as KingdomMetrics);
+        const systemPrompt = buildSystemPromptWithTone(advisor as Advisor, metrics as KingdomMetrics, tone);
         const history = messages.map(m => ({
           role: m.role === 'advisor' ? 'assistant' : 'user',
           content: m.text,

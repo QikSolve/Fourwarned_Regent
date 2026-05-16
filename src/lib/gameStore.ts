@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage, AdvisorConversation, ConversationMessage } from './gameTypes';
+import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage, AdvisorConversation, AdvisorTone, ConversationMessage } from './gameTypes';
 import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
 import { generateConsequenceMessages, detectConflicts } from './scribeLogic';
@@ -18,6 +18,14 @@ void ({} as ConversationMessage);
 const CAMPAIGN_STORAGE_KEY = 'fourwarned:campaign';
 const CAMPAIGN_ID_STORAGE_KEY = 'fourwarned:campaign-id';
 const CONVERSATIONS_STORAGE_KEY = 'fourwarned:conversations';
+
+function createEmptyConversation(): AdvisorConversation {
+  return {
+    messages: [],
+    isPersistent: false,
+    tone: 'Concise',
+  };
+}
 
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
@@ -440,9 +448,10 @@ interface GameStore extends GameState {
   dismissWelcome: () => void;
   openChatModal: (advisorId: AdvisorId) => void;
   closeChatModal: () => void;
-  sendChatMessage: (advisorId: AdvisorId, text: string) => Promise<void>;
+  sendChatMessage: (advisorId: AdvisorId, text: string, options?: { isQuickFollowUp?: boolean }) => Promise<void>;
   clearConversation: (advisorId: AdvisorId) => void;
   toggleConversationPersistence: (advisorId: AdvisorId) => void;
+  setConversationTone: (advisorId: AdvisorId, tone: AdvisorTone) => void;
 }
 
 function pickGameState(store: GameStore): GameState {
@@ -664,7 +673,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       set(state => {
         const existing = state.conversations[advisorId];
         const persistedConv = persisted[advisorId];
-        const conversation: AdvisorConversation = existing ?? persistedConv ?? { messages: [], isPersistent: false };
+        const conversation: AdvisorConversation = existing
+          ?? (persistedConv ? { ...createEmptyConversation(), ...persistedConv } : undefined)
+          ?? createEmptyConversation();
         return {
           showChatModal: true,
           chatAdvisorId: advisorId,
@@ -677,7 +688,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ showChatModal: false, chatAdvisorId: null });
     },
 
-    sendChatMessage: async (advisorId, text) => {
+    sendChatMessage: async (advisorId, text, options) => {
       const state = get();
       const advisor = state.advisors.find(a => a.id === advisorId);
       if (!advisor) return;
@@ -694,18 +705,25 @@ export const useGameStore = create<GameStore>((set, get) => {
         conversations: {
           ...s.conversations,
           [advisorId]: {
-            ...s.conversations[advisorId] ?? { messages: [], isPersistent: false },
+            ...s.conversations[advisorId] ?? createEmptyConversation(),
             messages: [...(s.conversations[advisorId]?.messages ?? []), userMsg],
           },
         },
       }));
 
-      const currentConv = get().conversations[advisorId] ?? { messages: [], isPersistent: false };
+      const currentConv = get().conversations[advisorId] ?? createEmptyConversation();
       const history = currentConv.messages
         .filter(m => m.id !== userMsg.id)
         .map(m => ({ role: m.role, text: m.text }));
 
-      const reply = await getAdvisorChatReply(advisor, state.metrics, history, text);
+      const reply = await getAdvisorChatReply(
+        advisor,
+        state.metrics,
+        history,
+        text,
+        currentConv.tone,
+        options?.isQuickFollowUp ?? false
+      );
 
       const advisorMsg: ConversationMessage = {
         id: generateId(),
@@ -717,7 +735,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       set(s => {
         const updated: AdvisorConversation = {
-          ...s.conversations[advisorId] ?? { messages: [], isPersistent: false },
+          ...s.conversations[advisorId] ?? createEmptyConversation(),
           messages: [...(s.conversations[advisorId]?.messages ?? []), advisorMsg],
         };
         const updatedConvs = { ...s.conversations, [advisorId]: updated };
@@ -730,7 +748,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     clearConversation: (advisorId) => {
       set(s => {
-        const existing = s.conversations[advisorId] ?? { messages: [], isPersistent: false };
+        const existing = s.conversations[advisorId] ?? createEmptyConversation();
         const updated = { ...existing, messages: [] };
         const updatedConvs = { ...s.conversations, [advisorId]: updated };
         writePersistedConversations(updatedConvs);
@@ -740,10 +758,22 @@ export const useGameStore = create<GameStore>((set, get) => {
 
     toggleConversationPersistence: (advisorId) => {
       set(s => {
-        const existing = s.conversations[advisorId] ?? { messages: [], isPersistent: false };
+        const existing = s.conversations[advisorId] ?? createEmptyConversation();
         const updated = { ...existing, isPersistent: !existing.isPersistent };
         const updatedConvs = { ...s.conversations, [advisorId]: updated };
         writePersistedConversations(updatedConvs);
+        return { conversations: updatedConvs };
+      });
+    },
+
+    setConversationTone: (advisorId, tone) => {
+      set(s => {
+        const existing = s.conversations[advisorId] ?? createEmptyConversation();
+        const updated = { ...existing, tone };
+        const updatedConvs = { ...s.conversations, [advisorId]: updated };
+        if (updated.isPersistent) {
+          writePersistedConversations(updatedConvs);
+        }
         return { conversations: updatedConvs };
       });
     },

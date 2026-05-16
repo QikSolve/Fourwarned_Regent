@@ -3,12 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
 import { ADVISOR_META } from '@/lib/ai/advisorMeta';
-import type { AdvisorId } from '@/lib/gameTypes';
+import type { AdvisorId, AdvisorTone } from '@/lib/gameTypes';
 
 const QUICK_CHIPS = ['Why?', 'Alternative', 'Pros/Cons', 'Explain more'] as const;
-
 const TONE_OPTIONS = ['Concise', 'Analytical', 'Collaborative'] as const;
-type Tone = (typeof TONE_OPTIONS)[number];
 
 function TypingIndicator() {
   return (
@@ -37,15 +35,16 @@ export function AdvisorChatModal() {
   const sendChatMessage = useGameStore(s => s.sendChatMessage);
   const clearConversation = useGameStore(s => s.clearConversation);
   const toggleConversationPersistence = useGameStore(s => s.toggleConversationPersistence);
+  const setConversationTone = useGameStore(s => s.setConversationTone);
 
   const [inputText, setInputText] = useState('');
-  const [tone, setTone] = useState<Tone>('Concise');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const advisor = advisors.find(a => a.id === chatAdvisorId);
   const conversation = chatAdvisorId ? conversations[chatAdvisorId as AdvisorId] : null;
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
   const isPersistent = conversation?.isPersistent ?? false;
+  const tone = (conversation?.tone ?? 'Concise') as AdvisorTone;
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -57,11 +56,30 @@ export function AdvisorChatModal() {
 
   const meta = ADVISOR_META[advisor.id] ?? { avatar: '👤', bio: '' };
 
-  function handleSend(text: string) {
+  function handleSend(text: string, options?: { isQuickFollowUp?: boolean }) {
     const trimmed = text.trim();
     if (!trimmed || isChatLoading) return;
     setInputText('');
-    void sendChatMessage(chatAdvisorId as AdvisorId, trimmed);
+    void sendChatMessage(chatAdvisorId as AdvisorId, trimmed, options);
+  }
+
+  function handleExport() {
+    if (!chatAdvisorId || !advisor) return;
+    const payload = {
+      advisorId: chatAdvisorId,
+      advisor: `${advisor.title} ${advisor.name}`,
+      tone,
+      isPersistent,
+      exportedAt: new Date().toISOString(),
+      messages,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `advisor-${chatAdvisorId}-conversation.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -107,9 +125,7 @@ export function AdvisorChatModal() {
                 <span className="font-bold text-sm text-[var(--on-surface)]">
                   {advisor.title} {advisor.name}
                 </span>
-                <span className="sigil-chip">
-                  {advisor.region}
-                </span>
+                <span className="sigil-chip">{advisor.region}</span>
               </div>
               <p className="text-xs mt-0.5 leading-relaxed ledger-subtitle">{meta.bio}</p>
             </div>
@@ -132,7 +148,7 @@ export function AdvisorChatModal() {
             {TONE_OPTIONS.map(t => (
               <button
                 key={t}
-                onClick={() => setTone(t)}
+                onClick={() => setConversationTone(chatAdvisorId as AdvisorId, t)}
                 className="text-xs px-2 py-0.5 rounded transition-colors border"
                 style={{
                   backgroundColor: tone === t ? 'var(--primary-container)' : 'var(--surface-container-lowest)',
@@ -172,6 +188,14 @@ export function AdvisorChatModal() {
                 />
               </span>
             </label>
+            <button
+              onClick={handleExport}
+              className="wax-button wax-button--muted text-xs px-2 py-1"
+              title="Export transcript as JSON"
+              aria-label="Export conversation transcript"
+            >
+              Export
+            </button>
           </div>
         </div>
 
@@ -184,9 +208,7 @@ export function AdvisorChatModal() {
           {messages.length === 0 && (
             <div className="text-center py-8 ledger-subtitle">
               <div className="text-2xl mb-2">{meta.avatar}</div>
-              <p className="text-xs italic">
-                &ldquo;Open a conversation to seek counsel, Your Majesty.&rdquo;
-              </p>
+              <p className="text-xs italic">&ldquo;Open a conversation to seek counsel, Your Majesty.&rdquo;</p>
             </div>
           )}
           {messages.map(msg => (
@@ -211,11 +233,15 @@ export function AdvisorChatModal() {
                       className="text-xs px-1 rounded"
                       style={{
                         fontSize: '10px',
-                        color: msg.source === 'ai' ? 'var(--tertiary)' : 'var(--primary)',
-                        backgroundColor: msg.source === 'ai' ? 'rgba(177, 218, 154, 0.12)' : 'rgba(242, 202, 80, 0.12)',
+                        color: msg.source === 'ai' ? 'var(--tertiary)' : msg.source === 'moderated' ? 'var(--secondary)' : 'var(--primary)',
+                        backgroundColor: msg.source === 'ai'
+                          ? 'rgba(177, 218, 154, 0.12)'
+                          : msg.source === 'moderated'
+                            ? 'rgba(255, 180, 171, 0.12)'
+                            : 'rgba(242, 202, 80, 0.12)',
                       }}
                     >
-                      {msg.source === 'ai' ? '✦ AI' : '◈ Fallback'}
+                      {msg.source === 'ai' ? '✦ AI' : msg.source === 'moderated' ? '⚑ Moderated' : '◈ Fallback'}
                     </span>
                   </div>
                 )}
@@ -237,12 +263,11 @@ export function AdvisorChatModal() {
           {QUICK_CHIPS.map(chip => (
             <button
               key={chip}
-              onClick={() => handleSend(chip)}
+              onClick={() => handleSend(chip, { isQuickFollowUp: true })}
               disabled={isChatLoading}
               className="sigil-chip"
               style={{
                 backgroundColor: isChatLoading ? 'var(--surface-container-high)' : 'var(--surface-container-lowest)',
-                color: isChatLoading ? 'var(--on-surface-variant)' : 'var(--on-surface-variant)',
                 cursor: isChatLoading ? 'not-allowed' : 'pointer',
               }}
             >

@@ -2,6 +2,8 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { AdvisorCard } from './AdvisorCard';
+import { AdvisorInlineThreads } from './AdvisorInlineThreads';
+import { MultiAdvisorWorkspace } from './MultiAdvisorWorkspace';
 
 export function AdvisorPanel() {
   const advisors = useGameStore(s => s.advisors);
@@ -14,6 +16,8 @@ export function AdvisorPanel() {
       {advisors.map(advisor => (
         <AdvisorCard key={advisor.id} advisor={advisor} />
       ))}
+      <MultiAdvisorWorkspace />
+      <AdvisorInlineThreads />
     </section>
   );
 }
