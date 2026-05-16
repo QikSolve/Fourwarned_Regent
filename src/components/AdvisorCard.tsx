@@ -28,6 +28,7 @@ export function AdvisorCard({ advisor }: AdvisorCardProps) {
   const [counsel, setCounsel] = useState<NormalizedAdvisorCounsel | null>(null);
   const [isLoadingCounsel, setIsLoadingCounsel] = useState(false);
   const openProceduresModal = useGameStore(s => s.openProceduresModal);
+  const openChatModal = useGameStore(s => s.openChatModal);
   const procedures = useGameStore(s => s.procedures);
   const metrics = useGameStore(s => s.metrics);
   
@@ -152,6 +153,16 @@ export function AdvisorCard({ advisor }: AdvisorCardProps) {
             )}
           </div>
 
+          <button
+            className="w-full text-xs py-1 px-2 rounded border font-medium transition-colors mb-1"
+            style={{ backgroundColor: '#1a4a6e', color: '#f4e4c1', borderColor: '#153a56' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              openChatModal(advisor.id);
+            }}
+          >
+            Open Conversation
+          </button>
           <button
             className="w-full text-xs py-1 px-2 rounded border font-medium transition-colors"
             style={{ backgroundColor: '#8b2635', color: '#f4e4c1', borderColor: '#6b1d28' }}

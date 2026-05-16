@@ -106,3 +106,16 @@ export type TurnRecord = {
   metricsSnapshot: KingdomMetrics;
   reportsSummary: string[];
 };
+
+export type ConversationMessage = {
+  id: string;
+  role: 'user' | 'advisor';
+  text: string;
+  timestamp: number;
+  source?: 'ai' | 'fallback';
+};
+
+export type AdvisorConversation = {
+  messages: ConversationMessage[];
+  isPersistent: boolean;
+};

@@ -1,4 +1,4 @@
-import type { Advisor, KingdomMetrics, Report, Season } from '@/lib/gameTypes';
+import type { Advisor, ConversationMessage, KingdomMetrics, Report, Season } from '@/lib/gameTypes';
 import {
   AdvisorRecommendationSchema,
   ScribeClarificationSchema,
@@ -69,6 +69,55 @@ function normalizeConsequenceText(summary: string, consequences: Array<{ aspect:
   const details = consequences.map(consequence => `- ${consequence.aspect} (${consequence.direction}): ${consequence.explanation}`).join('\n');
   const warningText = warnings.length > 0 ? `\n\nWarnings:\n${warnings.map(warning => `⚠ ${warning}`).join('\n')}` : '';
   return `${summary}\n\n${details}${warningText}`;
+}
+
+export type ChatReply = { text: string; source: 'ai' | 'fallback' };
+
+function buildChatFallback(advisor: Advisor, userMessage: string): ChatReply {
+  const msg = userMessage.toLowerCase();
+  const text = msg.includes('why')
+    ? `My reasoning stems from my background in ${advisor.bias}. The current kingdom state demands careful consideration of these priorities, Your Majesty.`
+    : msg.includes('alternative')
+    ? `An alternative approach would be to consider a more measured path — weigh the immediate costs against long-term stability before committing to any course.`
+    : msg.includes('pros') || msg.includes('cons')
+    ? `The merits are clear: acting preserves stability. The risks: hasty action may disturb more than it settles. I counsel deliberation, Majesty.`
+    : msg.includes('explain')
+    ? `Let me be plain, Your Majesty: the situation requires attention because left unaddressed, compounding pressures will limit your future options considerably.`
+    : `As your ${advisor.title}, I advise caution and deliberation. The details warrant careful study before any decree is issued.`;
+  return { text, source: 'fallback' };
+}
+
+export async function getAdvisorChatReply(
+  advisor: Advisor,
+  metrics: KingdomMetrics,
+  history: Pick<ConversationMessage, 'role' | 'text'>[],
+  userMessage: string
+): Promise<ChatReply> {
+  try {
+    const response = await fetch('/api/advisor/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        advisor,
+        metrics: normalizeMetrics(metrics),
+        messages: history,
+        userMessage,
+      }),
+    });
+
+    if (!response.ok) {
+      return buildChatFallback(advisor, userMessage);
+    }
+
+    const data = await response.json();
+    if (typeof data.reply !== 'string' || data.reply.length === 0) {
+      return buildChatFallback(advisor, userMessage);
+    }
+
+    return { text: data.reply, source: 'ai' };
+  } catch {
+    return buildChatFallback(advisor, userMessage);
+  }
 }
 
 export async function getAdvisorCounsel(
