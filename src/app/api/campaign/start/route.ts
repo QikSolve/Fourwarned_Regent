@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createCampaign } from '@/lib/db/client';
+import { createNewCampaignState } from '@/lib/campaign/createNewCampaignState';
 import { GameStateSchema } from '@/lib/contracts/gameplay';
 import { CAMPAIGN_STATE_VERSION } from '@/lib/campaign/persistence';
 import { incrementCounter } from '@/lib/observability/metrics';
@@ -33,14 +34,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 
+    const createdAt = new Date().toISOString();
     const initialState = {
       playerName: parsed.data.playerName ?? 'Your Majesty',
       season: 'Spring',
       year: 1,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
 
-    const campaignId = await createCampaign(parsed.data.initialState ?? initialState, CAMPAIGN_STATE_VERSION);
+    const campaignId = await createCampaign(parsed.data.initialState ?? createNewCampaignState(), CAMPAIGN_STATE_VERSION);
 
     const response = ResponseSchema.parse({
       campaignId,
