@@ -1,10 +1,24 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createCampaign } from '@/lib/db/client';
+import { GameStateSchema } from '@/lib/contracts/gameplay';
+import { CAMPAIGN_STATE_VERSION } from '@/lib/campaign/persistence';
+import { incrementCounter } from '@/lib/observability/metrics';
+import { logApiError } from '@/lib/observability/logger';
 
 const RequestSchema = z.object({
   playerName: z.string().optional(),
-});
+  initialState: GameStateSchema.optional(),
+}).strict();
+
+const ResponseSchema = z.object({
+  campaignId: z.string().uuid(),
+  playerName: z.string(),
+  season: z.literal('Spring'),
+  year: z.literal(1),
+  createdAt: z.string().datetime(),
+  version: z.number().int().min(1),
+}).strict();
 
 /**
  * POST /api/campaign/start
@@ -26,10 +40,18 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
     };
 
-    const campaignId = await createCampaign(initialState);
+    const campaignId = await createCampaign(parsed.data.initialState ?? initialState, CAMPAIGN_STATE_VERSION);
 
-    return NextResponse.json({ campaignId, ...initialState }, { status: 201 });
-  } catch {
+    const response = ResponseSchema.parse({
+      campaignId,
+      ...initialState,
+      version: CAMPAIGN_STATE_VERSION,
+    });
+
+    return NextResponse.json(response, { status: 201 });
+  } catch (error) {
+    incrementCounter('apiFailure');
+    logApiError('campaign.start.failed', error, {});
     return NextResponse.json({ error: 'Failed to start campaign' }, { status: 500 });
   }
 }

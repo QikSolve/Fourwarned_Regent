@@ -4,6 +4,7 @@ import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
 import { generateWelcomeMessage, generateConsequenceMessages, detectConflicts } from './scribeLogic';
 import { getScribeClarificationText, getScribeConsequenceText } from './ai/runtime';
+import { createSnapshot, migrateSnapshot } from './campaign/persistence';
 
 // suppress unused type imports - they're used via GameState
 void ({} as Report);
@@ -12,7 +13,7 @@ void ({} as DoctrineCategory);
 void ({} as ScribeMessage);
 
 const CAMPAIGN_STORAGE_KEY = 'fourwarned:campaign';
-const CAMPAIGN_STATE_VERSION = 1;
+const CAMPAIGN_ID_STORAGE_KEY = 'fourwarned:campaign-id';
 
 const INITIAL_METRICS: KingdomMetrics = {
   food: 45,
@@ -208,12 +209,6 @@ const INITIAL_DOCTRINES = [
   },
 ];
 
-type PersistedCampaignSnapshot = {
-  version: number;
-  savedAt: string;
-  state: GameState;
-};
-
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
 }
@@ -287,27 +282,6 @@ function createNewCampaignState(): GameState {
     showProceduresModal: false,
     selectedAdvisorId: null,
     turnHistory: [],
-  };
-}
-
-function toPersistedSnapshot(state: GameState): PersistedCampaignSnapshot {
-  return {
-    version: CAMPAIGN_STATE_VERSION,
-    savedAt: new Date().toISOString(),
-    state: {
-      ...state,
-      metrics: cloneMetrics(state.metrics),
-      advisors: cloneAdvisors(state.advisors),
-      reports: cloneReports(state.reports),
-      procedures: cloneProcedures(state.procedures),
-      doctrines: cloneDoctrines(state.doctrines),
-      scribeMessages: cloneMessages(state.scribeMessages),
-      turnHistory: state.turnHistory.map(record => ({
-        ...record,
-        metricsSnapshot: cloneMetrics(record.metricsSnapshot),
-        reportsSummary: [...record.reportsSummary],
-      })),
-    },
   };
 }
 
@@ -535,17 +509,11 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
     if (!raw) return null;
 
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-
-    if (typeof parsed.version === 'number' && parsed.version > CAMPAIGN_STATE_VERSION) {
+    const migrated = migrateSnapshot(parsed);
+    if (!migrated) {
       return null;
     }
-
-    const payload = isRecord(parsed.state)
-      ? parsed.state
-      : parsed;
-
-    return sanitizeState(payload, fallback);
+    return sanitizeState(migrated.state, fallback);
   } catch {
     return null;
   }
@@ -554,7 +522,27 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
 function writePersistedCampaignState(state: GameState): boolean {
   if (!canUseBrowserStorage()) return false;
   try {
-    window.localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(toPersistedSnapshot(state)));
+    window.localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(createSnapshot(state)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPersistedCampaignId(): string | null {
+  if (!canUseBrowserStorage()) return null;
+  try {
+    const id = window.localStorage.getItem(CAMPAIGN_ID_STORAGE_KEY);
+    return id && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCampaignId(campaignId: string): boolean {
+  if (!canUseBrowserStorage()) return false;
+  try {
+    window.localStorage.setItem(CAMPAIGN_ID_STORAGE_KEY, campaignId);
     return true;
   } catch {
     return false;
@@ -565,15 +553,59 @@ function clearPersistedCampaignState() {
   if (!canUseBrowserStorage()) return;
   try {
     window.localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+    window.localStorage.removeItem(CAMPAIGN_ID_STORAGE_KEY);
   } catch {
     // no-op
   }
 }
 
+async function startServerCampaign(initialState: GameState): Promise<string | null> {
+  try {
+    const response = await fetch('/api/campaign/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initialState }),
+    });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    if (!isRecord(data) || typeof data.campaignId !== 'string') return null;
+    return data.campaignId;
+  } catch {
+    return null;
+  }
+}
+
+async function loadServerCampaign(campaignId: string): Promise<GameState | null> {
+  try {
+    const response = await fetch(`/api/campaign/${campaignId}`, { method: 'GET' });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    const migrated = migrateSnapshot(data);
+    if (!migrated) return null;
+    return migrated.state;
+  } catch {
+    return null;
+  }
+}
+
+async function saveServerCampaign(campaignId: string, state: GameState): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/campaign/${campaignId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 interface GameStore extends GameState {
-  initGame: () => void;
-  saveCampaignState: () => boolean;
-  loadCampaignState: () => boolean;
+  campaignId: string | null;
+  initGame: () => Promise<void>;
+  saveCampaignState: () => Promise<boolean>;
+  loadCampaignState: () => Promise<boolean>;
   resetCampaignState: () => void;
   selectReport: (id: string | null) => void;
   chooseReportOption: (reportId: string, choiceId: string) => void;
@@ -613,52 +645,87 @@ export const useGameStore = create<GameStore>((set, get) => {
 
   return {
     ...initial,
+    campaignId: null,
 
-    initGame: () => {
-      const loaded = get().loadCampaignState();
+    initGame: async () => {
+      const loaded = await get().loadCampaignState();
       if (loaded) return;
 
       const fresh = createNewCampaignState();
-      set(fresh);
-      get().saveCampaignState();
+      const campaignId = await startServerCampaign(fresh);
+      if (campaignId) {
+        writePersistedCampaignId(campaignId);
+      }
+      set({ ...fresh, campaignId });
+      void get().saveCampaignState();
     },
 
-    saveCampaignState: () => {
+    saveCampaignState: async () => {
       const snapshot = pickGameState(get());
-      return writePersistedCampaignState(snapshot);
+      const localSaved = writePersistedCampaignState(snapshot);
+      const campaignId = get().campaignId ?? readPersistedCampaignId();
+      if (!campaignId) {
+        return localSaved;
+      }
+      const serverSaved = await saveServerCampaign(campaignId, snapshot);
+      return serverSaved || localSaved;
     },
 
-    loadCampaignState: () => {
+    loadCampaignState: async () => {
       const fallback = createNewCampaignState();
+      const persistedCampaignId = readPersistedCampaignId();
+      if (persistedCampaignId) {
+        const serverState = await loadServerCampaign(persistedCampaignId);
+        if (serverState) {
+          const normalized = sanitizeState(serverState, fallback);
+          writePersistedCampaignId(persistedCampaignId);
+          set({
+            ...normalized,
+            campaignId: persistedCampaignId,
+            showProceduresModal: false,
+            selectedAdvisorId: null,
+          });
+          writePersistedCampaignState(normalized);
+          return true;
+        }
+      }
+
       const loaded = readPersistedCampaignState(fallback);
-      if (!loaded) {
-        return false;
+      if (!loaded) return false;
+
+      const campaignId = persistedCampaignId ?? await startServerCampaign(loaded);
+      if (campaignId) {
+        writePersistedCampaignId(campaignId);
       }
 
       set({
         ...loaded,
+        campaignId,
         showProceduresModal: false,
         selectedAdvisorId: null,
       });
 
+      if (campaignId) {
+        void saveServerCampaign(campaignId, loaded);
+      }
       return true;
     },
 
     resetCampaignState: () => {
       clearPersistedCampaignState();
       const fresh = createNewCampaignState();
-      set(fresh);
-      get().saveCampaignState();
+      set({ ...fresh, campaignId: null });
+      void get().initGame();
     },
 
     dismissWelcome: () => {
       set({ phase: 'reports' });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     selectReport: (id) => {
       set({ activeReportId: id });
-      get().saveCampaignState();
+      void get().saveCampaignState();
 
       if (!id) return;
 
@@ -688,7 +755,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             ],
           };
         });
-        get().saveCampaignState();
+        void get().saveCampaignState();
       });
     },
 
@@ -700,7 +767,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             : report
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     setFreeTextInstruction: (reportId, text) => {
@@ -709,7 +776,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           report.id === reportId ? { ...report, freeTextInstruction: text } : report
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     updateDoctrine: (categoryId, optionId) => {
@@ -718,7 +785,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           doctrine.id === categoryId ? { ...doctrine, selected: optionId } : doctrine
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     assignProcedure: (procedureId, advisorId) => {
@@ -746,89 +813,113 @@ export const useGameStore = create<GameStore>((set, get) => {
           }),
         };
       });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     openProceduresModal: (advisorId) => {
       set({ showProceduresModal: true, selectedAdvisorId: advisorId });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     closeProceduresModal: () => {
       set({ showProceduresModal: false, selectedAdvisorId: null });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     advanceTurn: () => {
       const state = get();
       const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
-
       const respondedReports = reports.filter(report => report.status === 'responded');
       if (respondedReports.length === 0) return;
 
-      const { newMetrics, newAdvisors } = resolveTurn(
-        metrics,
-        advisors,
-        reports,
-        procedures,
-        doctrines,
-        season,
-        year
-      );
+      const applyTurnResult = (newMetrics: KingdomMetrics, newAdvisors: Advisor[]) => {
+        const nextSeason: Season = season === 'Spring' ? 'Summer'
+          : season === 'Summer' ? 'Autumn'
+          : season === 'Autumn' ? 'Winter'
+          : 'Spring';
+        const nextYear = season === 'Winter' ? year + 1 : year;
 
-      const nextSeason: Season = season === 'Spring' ? 'Summer'
-        : season === 'Summer' ? 'Autumn'
-        : season === 'Autumn' ? 'Winter'
-        : 'Spring';
-      const nextYear = season === 'Winter' ? year + 1 : year;
+        const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
+        const fallbackConsequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
+        const fallbackConsequenceId = fallbackConsequenceMessages[0]?.id ?? null;
+        const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
 
-      const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
-      const fallbackConsequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
-      const fallbackConsequenceId = fallbackConsequenceMessages[0]?.id ?? null;
-      const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
+        const newMessages: ScribeMessage[] = [
+          ...fallbackConsequenceMessages,
+          ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season: nextSeason, year: nextYear })),
+        ];
 
-      const newMessages: ScribeMessage[] = [
-        ...fallbackConsequenceMessages,
-        ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season: nextSeason, year: nextYear })),
-      ];
+        const turnRecord = {
+          season,
+          year,
+          metricsSnapshot: { ...metrics },
+          reportsSummary: reports.filter(report => report.status === 'responded').map(report => {
+            const choice = report.choices.find(item => item.id === report.selectedChoiceId);
+            return `${report.advisorId}: ${choice?.label ?? 'No response'}`;
+          }),
+        };
 
-      const turnRecord = {
-        season,
-        year,
-        metricsSnapshot: { ...metrics },
-        reportsSummary: reports.filter(report => report.status === 'responded').map(report => {
-          const choice = report.choices.find(item => item.id === report.selectedChoiceId);
-          return `${report.advisorId}: ${choice?.label ?? 'No response'}`;
-        }),
+        set({
+          phase: 'reports',
+          season: nextSeason,
+          year: nextYear,
+          metrics: newMetrics,
+          advisors: newAdvisors,
+          reports: newReports,
+          scribeMessages: newMessages,
+          activeReportId: null,
+          turnHistory: [...state.turnHistory, turnRecord],
+        });
+        void get().saveCampaignState();
+
+        if (!fallbackConsequenceId) return;
+        void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
+          if (!result) return;
+
+          set(current => ({
+            scribeMessages: current.scribeMessages.map(message =>
+              message.id === fallbackConsequenceId
+                ? { ...message, text: result.text }
+                : message
+            ),
+          }));
+          void get().saveCampaignState();
+        });
       };
 
-      set({
-        phase: 'reports',
-        season: nextSeason,
-        year: nextYear,
-        metrics: newMetrics,
-        advisors: newAdvisors,
-        reports: newReports,
-        scribeMessages: newMessages,
-        activeReportId: null,
-        turnHistory: [...state.turnHistory, turnRecord],
-      });
-      get().saveCampaignState();
+      void (async () => {
+        const campaignId = get().campaignId ?? readPersistedCampaignId();
+        if (campaignId) {
+          try {
+            const response = await fetch('/api/turn/advance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                campaignId,
+                metrics,
+                advisors,
+                reports,
+                procedures,
+                doctrines,
+                season,
+                year,
+              }),
+            });
+            if (response.ok) {
+              const data: unknown = await response.json();
+              if (isRecord(data) && isRecord(data.newMetrics) && Array.isArray(data.newAdvisors)) {
+                applyTurnResult(data.newMetrics as KingdomMetrics, data.newAdvisors as Advisor[]);
+                return;
+              }
+            }
+          } catch {
+            // fall back to local deterministic simulation
+          }
+        }
 
-      if (!fallbackConsequenceId) return;
-
-      void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
-        if (!result) return;
-
-        set(current => ({
-          scribeMessages: current.scribeMessages.map(message =>
-            message.id === fallbackConsequenceId
-              ? { ...message, text: result.text }
-              : message
-          ),
-        }));
-        get().saveCampaignState();
-      });
+        const localResult = resolveTurn(metrics, advisors, reports, procedures, doctrines, season, year);
+        applyTurnResult(localResult.newMetrics, localResult.newAdvisors);
+      })();
     },
   };
 });

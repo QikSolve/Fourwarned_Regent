@@ -36,5 +36,31 @@ The assessment below compares current implementation (`src/**`) against those go
 npm ci
 npm run lint
 npm run build
+npm run test
 npm run dev
 ```
+
+## MVP Launch Scope Freeze
+
+Must-have for live:
+
+- Playable governance core loop (reports → scribe → decisions → simulation).
+- Stable server-backed campaign save/load.
+- Deployable production build on Vercel.
+- Basic observability (`/api/metrics`) and structured API error logs.
+- One feedback loop (guided playtest + issue capture).
+
+Deferred post-launch:
+
+- Advanced AI orchestration beyond current validated contracts.
+- Multiplayer.
+- Deep economy expansion beyond current MVP simulation.
+
+## Launch-Blocking Quality Gate
+
+Release is blocked if any are true:
+
+- `npm run lint` fails.
+- `npm run build` fails.
+- `npm run test` fails.
+- Any critical progression blocker (campaign cannot load/save/advance turn).

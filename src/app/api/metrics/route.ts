@@ -1,0 +1,18 @@
+import { NextResponse } from 'next/server';
+import { getAlertThresholds, getRuntimeMetrics } from '@/lib/observability/metrics';
+import { logApiError } from '@/lib/observability/logger';
+
+export async function GET() {
+  try {
+    const metrics = await getRuntimeMetrics();
+    const thresholds = getAlertThresholds();
+    return NextResponse.json({
+      metrics,
+      thresholds,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    logApiError('metrics.get.failed', error, {});
+    return NextResponse.json({ error: 'Failed to read runtime metrics' }, { status: 500 });
+  }
+}
