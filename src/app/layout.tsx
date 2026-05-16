@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import LlmStatus from '@/components/LlmStatus';
 
 export const metadata: Metadata = {
   title: 'Four Warned: Regent',
@@ -14,6 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>{children}</body>
+      <LlmStatus />
     </html>
   );
 }

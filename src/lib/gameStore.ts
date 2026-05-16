@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage } from './gameTypes';
 import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
-import { generateWelcomeMessage, generateConsequenceMessages, detectConflicts } from './scribeLogic';
+import { generateConsequenceMessages, detectConflicts } from './scribeLogic';
 import { getScribeClarificationText, getScribeConsequenceText } from './ai/runtime';
+import { createSnapshot, migrateSnapshot } from './campaign/persistence';
+import { createNewCampaignState } from './campaign/createNewCampaignState';
 
 // suppress unused type imports - they're used via GameState
 void ({} as Report);
@@ -12,207 +14,7 @@ void ({} as DoctrineCategory);
 void ({} as ScribeMessage);
 
 const CAMPAIGN_STORAGE_KEY = 'fourwarned:campaign';
-const CAMPAIGN_STATE_VERSION = 1;
-
-const INITIAL_METRICS: KingdomMetrics = {
-  food: 45,
-  morale: 55,
-  gold: 60,
-  threat: 35,
-  adminStrain: 40,
-};
-
-const INITIAL_ADVISORS: Advisor[] = [
-  {
-    id: 'steward',
-    name: 'Aldric',
-    title: 'Steward',
-    region: 'Riverhold',
-    competence: 72,
-    loyalty: 85,
-    stress: 30,
-    bias: 'Fiscal Conservatism',
-    ambition: 20,
-    authority: 60,
-    status: 'Active',
-    assignedProcedures: [],
-    maxProcedures: 3,
-  },
-  {
-    id: 'marshal',
-    name: 'Garrett',
-    title: 'Marshal',
-    region: 'Stonewatch',
-    competence: 78,
-    loyalty: 70,
-    stress: 45,
-    bias: 'Military Expansion',
-    ambition: 55,
-    authority: 65,
-    status: 'Active',
-    assignedProcedures: [],
-    maxProcedures: 3,
-  },
-  {
-    id: 'merchant',
-    name: 'Lyra',
-    title: 'Merchant Envoy',
-    region: 'Blackwater',
-    competence: 65,
-    loyalty: 60,
-    stress: 20,
-    bias: 'Free Trade',
-    ambition: 40,
-    authority: 50,
-    status: 'Active',
-    assignedProcedures: [],
-    maxProcedures: 3,
-  },
-  {
-    id: 'governor',
-    name: 'Elric',
-    title: 'Governor',
-    region: 'All Regions',
-    competence: 60,
-    loyalty: 75,
-    stress: 55,
-    bias: 'Regional Autonomy',
-    ambition: 45,
-    authority: 55,
-    status: 'Active',
-    assignedProcedures: [],
-    maxProcedures: 3,
-  },
-];
-
-const INITIAL_PROCEDURES = [
-  {
-    id: 'winter-reserve',
-    name: 'Winter Reserve Accounting',
-    description: 'Systematic tracking and protection of grain reserves for winter months.',
-    assignedTo: null as AdvisorId | null,
-    effects: { food: 5, adminStrain: 3 },
-  },
-  {
-    id: 'frontier-patrol',
-    name: 'Frontier Patrol Doctrine',
-    description: 'Regular military patrols along frontier borders to deter raiders.',
-    assignedTo: null as AdvisorId | null,
-    effects: { threat: -8, gold: -5 },
-  },
-  {
-    id: 'emergency-grain',
-    name: 'Emergency Grain Logistics',
-    description: 'Rapid redistribution of grain stores across regions during shortage.',
-    assignedTo: null as AdvisorId | null,
-    effects: { food: 10, adminStrain: 8 },
-  },
-  {
-    id: 'merchant-tax',
-    name: 'Merchant Tax Balancing',
-    description: 'Calibrated approach to merchant taxation preserving trade flows.',
-    assignedTo: null as AdvisorId | null,
-    effects: { gold: 8, morale: 3 },
-  },
-  {
-    id: 'regional-census',
-    name: 'Regional Census Protocol',
-    description: 'Systematic census of all regions to improve administrative efficiency.',
-    assignedTo: null as AdvisorId | null,
-    effects: { adminStrain: -10, morale: 2 },
-  },
-  {
-    id: 'border-toll',
-    name: 'Border Toll Management',
-    description: 'Organised toll collection at border crossings to generate revenue.',
-    assignedTo: null as AdvisorId | null,
-    effects: { gold: 12, morale: -3 },
-  },
-];
-
-const INITIAL_DOCTRINES = [
-  {
-    id: 'food-security',
-    name: 'Food Security Policy',
-    selected: 'balance-reserves',
-    options: [
-      {
-        id: 'prevent-famine',
-        label: 'Prevent Famine',
-        description: 'Prioritise grain stockpiles above all else. Restrict exports.',
-        effects: { food: 8, gold: -5, morale: 2 },
-      },
-      {
-        id: 'balance-reserves',
-        label: 'Balance Reserves',
-        description: 'Maintain adequate reserves while allowing measured trade.',
-        effects: { food: 3, gold: 2 },
-      },
-      {
-        id: 'maximize-exports',
-        label: 'Maximise Exports',
-        description: 'Prioritise grain exports for maximum revenue.',
-        effects: { food: -5, gold: 10, morale: -3 },
-      },
-    ],
-  },
-  {
-    id: 'military-doctrine',
-    name: 'Military Doctrine',
-    selected: 'defensive-posture',
-    options: [
-      {
-        id: 'defensive-posture',
-        label: 'Defensive Posture',
-        description: 'Hold fortified positions. Minimal offensive operations.',
-        effects: { threat: 3, gold: -3 },
-      },
-      {
-        id: 'active-patrols',
-        label: 'Active Patrols',
-        description: 'Aggressive patrol presence to deter and respond to threats.',
-        effects: { threat: -8, gold: -8, morale: 3 },
-      },
-      {
-        id: 'minimal-presence',
-        label: 'Minimal Presence',
-        description: 'Reduce military expenditure. Focus resources on other needs.',
-        effects: { threat: 10, gold: 8, morale: -5 },
-      },
-    ],
-  },
-  {
-    id: 'tax-policy',
-    name: 'Tax Policy',
-    selected: 'balanced-approach',
-    options: [
-      {
-        id: 'heavy-taxation',
-        label: 'Heavy Taxation',
-        description: 'Extract maximum revenue from all subjects and merchants.',
-        effects: { gold: 15, morale: -10, threat: 2 },
-      },
-      {
-        id: 'balanced-approach',
-        label: 'Balanced Approach',
-        description: 'Fair taxation that maintains loyalty while funding operations.',
-        effects: { gold: 5, morale: 2 },
-      },
-      {
-        id: 'light-taxes',
-        label: 'Light Taxes',
-        description: 'Minimal taxation to boost merchant activity and popular support.',
-        effects: { gold: -5, morale: 8, threat: -2 },
-      },
-    ],
-  },
-];
-
-type PersistedCampaignSnapshot = {
-  version: number;
-  savedAt: string;
-  state: GameState;
-};
+const CAMPAIGN_ID_STORAGE_KEY = 'fourwarned:campaign-id';
 
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
@@ -258,57 +60,6 @@ function cloneDoctrines(doctrines: DoctrineCategory[]): DoctrineCategory[] {
 
 function cloneMessages(messages: ScribeMessage[]): ScribeMessage[] {
   return messages.map(message => ({ ...message }));
-}
-
-function createNewCampaignState(): GameState {
-  const season: Season = 'Spring';
-  const year = 1;
-  const metrics = cloneMetrics(INITIAL_METRICS);
-  const advisors = cloneAdvisors(INITIAL_ADVISORS);
-  const reports = generateReports(metrics, advisors, season, year);
-  const welcomeMsg = generateWelcomeMessage(season, year);
-  const conflicts = detectConflicts(metrics, reports, advisors);
-  const messages: ScribeMessage[] = [
-    { id: generateId(), text: welcomeMsg, type: 'welcome', season, year },
-    ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season, year })),
-  ];
-
-  return {
-    phase: 'welcome',
-    season,
-    year,
-    metrics,
-    advisors,
-    reports,
-    procedures: cloneProcedures(INITIAL_PROCEDURES),
-    doctrines: cloneDoctrines(INITIAL_DOCTRINES),
-    scribeMessages: messages,
-    activeReportId: null,
-    showProceduresModal: false,
-    selectedAdvisorId: null,
-    turnHistory: [],
-  };
-}
-
-function toPersistedSnapshot(state: GameState): PersistedCampaignSnapshot {
-  return {
-    version: CAMPAIGN_STATE_VERSION,
-    savedAt: new Date().toISOString(),
-    state: {
-      ...state,
-      metrics: cloneMetrics(state.metrics),
-      advisors: cloneAdvisors(state.advisors),
-      reports: cloneReports(state.reports),
-      procedures: cloneProcedures(state.procedures),
-      doctrines: cloneDoctrines(state.doctrines),
-      scribeMessages: cloneMessages(state.scribeMessages),
-      turnHistory: state.turnHistory.map(record => ({
-        ...record,
-        metricsSnapshot: cloneMetrics(record.metricsSnapshot),
-        reportsSummary: [...record.reportsSummary],
-      })),
-    },
-  };
 }
 
 function sanitizeState(candidate: unknown, fallback: GameState): GameState {
@@ -537,15 +288,20 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed)) return null;
 
-    if (typeof parsed.version === 'number' && parsed.version > CAMPAIGN_STATE_VERSION) {
+    const isVersionedSnapshot = 'version' in parsed || 'state' in parsed || 'savedAt' in parsed;
+    if (isVersionedSnapshot) {
+      if (typeof parsed.version !== 'number' || !Number.isInteger(parsed.version)) {
+        return null;
+      }
+
+      if (parsed.version > CAMPAIGN_STATE_VERSION) {
+        return null;
+      }
+    const migrated = migrateSnapshot(parsed);
+    if (!migrated) {
       return null;
     }
-
-    const payload = isRecord(parsed.state)
-      ? parsed.state
-      : parsed;
-
-    return sanitizeState(payload, fallback);
+    return sanitizeState(migrated.state, fallback);
   } catch {
     return null;
   }
@@ -554,7 +310,27 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
 function writePersistedCampaignState(state: GameState): boolean {
   if (!canUseBrowserStorage()) return false;
   try {
-    window.localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(toPersistedSnapshot(state)));
+    window.localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(createSnapshot(state)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPersistedCampaignId(): string | null {
+  if (!canUseBrowserStorage()) return null;
+  try {
+    const id = window.localStorage.getItem(CAMPAIGN_ID_STORAGE_KEY);
+    return id && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCampaignId(campaignId: string): boolean {
+  if (!canUseBrowserStorage()) return false;
+  try {
+    window.localStorage.setItem(CAMPAIGN_ID_STORAGE_KEY, campaignId);
     return true;
   } catch {
     return false;
@@ -565,16 +341,60 @@ function clearPersistedCampaignState() {
   if (!canUseBrowserStorage()) return;
   try {
     window.localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+    window.localStorage.removeItem(CAMPAIGN_ID_STORAGE_KEY);
   } catch {
     // no-op
   }
 }
 
+async function startServerCampaign(initialState: GameState): Promise<string | null> {
+  try {
+    const response = await fetch('/api/campaign/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initialState }),
+    });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    if (!isRecord(data) || typeof data.campaignId !== 'string') return null;
+    return data.campaignId;
+  } catch {
+    return null;
+  }
+}
+
+async function loadServerCampaign(campaignId: string): Promise<GameState | null> {
+  try {
+    const response = await fetch(`/api/campaign/${campaignId}`, { method: 'GET' });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    const migrated = migrateSnapshot(data);
+    if (!migrated) return null;
+    return migrated.state;
+  } catch {
+    return null;
+  }
+}
+
+async function saveServerCampaign(campaignId: string, state: GameState): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/campaign/${campaignId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 interface GameStore extends GameState {
   isAdvancingTurn: boolean;
-  initGame: () => void;
-  saveCampaignState: () => boolean;
-  loadCampaignState: () => boolean;
+  campaignId: string | null;
+  initGame: () => Promise<void>;
+  saveCampaignState: () => Promise<boolean>;
+  loadCampaignState: () => Promise<boolean>;
   resetCampaignState: () => void;
   selectReport: (id: string | null) => void;
   chooseReportOption: (reportId: string, choiceId: string) => void;
@@ -615,53 +435,88 @@ export const useGameStore = create<GameStore>((set, get) => {
   return {
     ...initial,
     isAdvancingTurn: false,
+    campaignId: null,
 
-    initGame: () => {
-      const loaded = get().loadCampaignState();
+    initGame: async () => {
+      const loaded = await get().loadCampaignState();
       if (loaded) return;
 
       const fresh = createNewCampaignState();
-      set({ ...fresh, isAdvancingTurn: false });
-      get().saveCampaignState();
+      const campaignId = await startServerCampaign(fresh);
+      if (campaignId) {
+        writePersistedCampaignId(campaignId);
+      }
+      set({ ...fresh, isAdvancingTurn: false, campaignId });
+      void get().saveCampaignState();
     },
 
-    saveCampaignState: () => {
+    saveCampaignState: async () => {
       const snapshot = pickGameState(get());
-      return writePersistedCampaignState(snapshot);
+      const localSaved = writePersistedCampaignState(snapshot);
+      const campaignId = get().campaignId ?? readPersistedCampaignId();
+      if (!campaignId) {
+        return localSaved;
+      }
+      const serverSaved = await saveServerCampaign(campaignId, snapshot);
+      return serverSaved || localSaved;
     },
 
-    loadCampaignState: () => {
+    loadCampaignState: async () => {
       const fallback = createNewCampaignState();
+      const persistedCampaignId = readPersistedCampaignId();
+      if (persistedCampaignId) {
+        const serverState = await loadServerCampaign(persistedCampaignId);
+        if (serverState) {
+          const normalized = sanitizeState(serverState, fallback);
+          writePersistedCampaignId(persistedCampaignId);
+          set({
+            ...normalized,
+            campaignId: persistedCampaignId,
+            showProceduresModal: false,
+            selectedAdvisorId: null,
+          });
+          writePersistedCampaignState(normalized);
+          return true;
+        }
+      }
+
       const loaded = readPersistedCampaignState(fallback);
-      if (!loaded) {
-        return false;
+      if (!loaded) return false;
+
+      const campaignId = persistedCampaignId ?? await startServerCampaign(loaded);
+      if (campaignId) {
+        writePersistedCampaignId(campaignId);
       }
 
       set({
         ...loaded,
         isAdvancingTurn: false,
+        campaignId,
         showProceduresModal: false,
         selectedAdvisorId: null,
       });
 
+      if (campaignId) {
+        void saveServerCampaign(campaignId, loaded);
+      }
       return true;
     },
 
     resetCampaignState: () => {
       clearPersistedCampaignState();
       const fresh = createNewCampaignState();
-      set({ ...fresh, isAdvancingTurn: false });
-      get().saveCampaignState();
+      set({ ...fresh, isAdvancingTurn: false, campaignId: null });
+      void get().initGame();
     },
 
     dismissWelcome: () => {
       set({ phase: 'reports' });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     selectReport: (id) => {
       set({ activeReportId: id });
-      get().saveCampaignState();
+      void get().saveCampaignState();
 
       if (!id) return;
 
@@ -691,7 +546,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             ],
           };
         });
-        get().saveCampaignState();
+        void get().saveCampaignState();
       });
     },
 
@@ -703,7 +558,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             : report
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     setFreeTextInstruction: (reportId, text) => {
@@ -712,7 +567,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           report.id === reportId ? { ...report, freeTextInstruction: text } : report
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     updateDoctrine: (categoryId, optionId) => {
@@ -721,7 +576,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           doctrine.id === categoryId ? { ...doctrine, selected: optionId } : doctrine
         ),
       }));
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     assignProcedure: (procedureId, advisorId) => {
@@ -749,17 +604,17 @@ export const useGameStore = create<GameStore>((set, get) => {
           }),
         };
       });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     openProceduresModal: (advisorId) => {
       set({ showProceduresModal: true, selectedAdvisorId: advisorId });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     closeProceduresModal: () => {
       set({ showProceduresModal: false, selectedAdvisorId: null });
-      get().saveCampaignState();
+      void get().saveCampaignState();
     },
 
     advanceTurn: () => {
@@ -767,23 +622,12 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       const state = get();
       const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
-
       const respondedReports = reports.filter(report => report.status === 'responded');
       if (respondedReports.length === 0) return;
 
       set({ isAdvancingTurn: true, phase: 'resolution' });
 
-      try {
-        const { newMetrics, newAdvisors } = resolveTurn(
-          metrics,
-          advisors,
-          reports,
-          procedures,
-          doctrines,
-          season,
-          year
-        );
-
+      const applyTurnResult = (newMetrics: KingdomMetrics, newAdvisors: Advisor[]) => {
         const nextSeason: Season = season === 'Spring' ? 'Summer'
           : season === 'Summer' ? 'Autumn'
           : season === 'Autumn' ? 'Winter'
@@ -822,10 +666,9 @@ export const useGameStore = create<GameStore>((set, get) => {
           activeReportId: null,
           turnHistory: [...state.turnHistory, turnRecord],
         });
-        get().saveCampaignState();
+        void get().saveCampaignState();
 
         if (!fallbackConsequenceId) return;
-
         void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
           if (!result) return;
 
@@ -836,12 +679,48 @@ export const useGameStore = create<GameStore>((set, get) => {
                 : message
             ),
           }));
-          get().saveCampaignState();
+          void get().saveCampaignState();
         });
-      } catch (error) {
-        console.error('Failed to advance turn.', error);
-        set({ isAdvancingTurn: false, phase: 'reports' });
-      }
+      };
+
+      void (async () => {
+        try {
+          const campaignId = get().campaignId ?? readPersistedCampaignId();
+          if (campaignId) {
+            try {
+              const response = await fetch('/api/turn/advance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  campaignId,
+                  metrics,
+                  advisors,
+                  reports,
+                  procedures,
+                  doctrines,
+                  season,
+                  year,
+                }),
+              });
+              if (response.ok) {
+                const data: unknown = await response.json();
+                if (isRecord(data) && isRecord(data.newMetrics) && Array.isArray(data.newAdvisors)) {
+                  applyTurnResult(data.newMetrics as KingdomMetrics, data.newAdvisors as Advisor[]);
+                  return;
+                }
+              }
+            } catch {
+              // fall back to local deterministic simulation
+            }
+          }
+
+          const localResult = resolveTurn(metrics, advisors, reports, procedures, doctrines, season, year);
+          applyTurnResult(localResult.newMetrics, localResult.newAdvisors);
+        } catch (error) {
+          console.error('Failed to advance turn.', error);
+          set({ isAdvancingTurn: false, phase: 'reports' });
+        }
+      })();
     },
   };
 });
