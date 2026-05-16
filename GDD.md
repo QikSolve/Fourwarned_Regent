@@ -1,0 +1,474 @@
+# FOUR WARNED: REGENT
+
+## Game Design Document (GDD)
+
+v0.1
+
+---
+
+## 1. High Concept
+
+### Elevator Pitch
+
+Four Warned: Regent is a text-driven medieval governance simulation where players rule through autonomous advisors rather than direct control.
+
+You govern a fragile frontier kingdom by:
+
+- issuing decrees
+- defining doctrine
+- assigning operational procedures
+- balancing autonomy and authority
+- interpreting imperfect reports
+
+The challenge is not controlling every action — but building institutions capable of surviving uncertainty, scale, and human interpretation.
+
+---
+
+## 2. Core Fantasy
+
+The player fantasy is:
+
+> “I am a regent governing through imperfect people and fragile institutions.”
+
+The game is NOT:
+
+- city building
+- direct RTS control
+- tactical combat
+- spreadsheet optimisation
+
+The game IS:
+
+- delegation
+- institutional design
+- governance under uncertainty
+- scaling complexity
+- interpreting autonomous behaviour
+
+---
+
+## 3. Design Pillars
+
+### 3.1 Governance Through Delegation
+
+The player rarely acts directly.
+
+Instead, they:
+
+- issue priorities
+- define policy
+- structure institutions
+- empower advisors
+
+Advisors interpret intent imperfectly.
+
+---
+
+### 3.2 Institutions Drift Over Time
+
+Governance systems evolve beyond player intent.
+
+Regions:
+
+- reinterpret doctrine
+- develop local identity
+- become politically independent
+- prioritise survival differently
+
+The player must constantly maintain alignment.
+
+---
+
+### 3.3 Information Is Imperfect
+
+The player never sees the entire truth.
+
+Reports may be:
+
+- delayed
+- biased
+- incomplete
+- politically motivated
+- inaccurate
+
+The player governs through inference.
+
+---
+
+### 3.4 Scaling Creates Fragility
+
+As the kingdom expands:
+
+- coordination weakens
+- communication slows
+- local autonomy grows
+- administrative strain increases
+
+The core challenge becomes:
+
+> scaling governance successfully.
+
+---
+
+### 3.5 Advisors Are People, Not Units
+
+Advisors:
+
+- interpret orders differently
+- possess biases
+- become stressed
+- seek influence
+- develop loyalty to regions
+
+The player manages:
+
+- institutions
+- personalities
+- incentives
+- operational knowledge
+
+---
+
+## 4. Core Gameplay Loop
+
+Reports Arrive
+→ Advisors Raise Concerns
+→ Scribe Clarifies Intent
+→ Player Defines Priorities
+→ Procedures / Decrees Drafted
+→ Advisors Interpret Orders
+→ Simulation Resolves
+→ Consequences Emerge
+
+Each turn represents a governance cycle (season).
+
+---
+
+## 5. Core Systems
+
+### 5.1 The Scribe
+
+#### Role
+
+The Scribe is:
+
+- permanently loyal
+- the player’s closest advisor
+- governance assistant
+- institutional translator
+
+The Scribe acts as:
+
+- clarification layer
+- decree drafter
+- conversational interface
+- systems explainer
+
+---
+
+#### Responsibilities
+
+The Scribe:
+
+- asks clarifying questions
+- drafts decrees
+- identifies policy conflicts
+- explains consequences
+- translates player intent into governance structure
+
+---
+
+#### Design Goal
+
+The Scribe exists to make:
+
+- complex governance approachable
+- AI interaction intuitive
+- systems legible
+
+The Scribe should feel:
+
+- trusted
+- intelligent
+- grounded
+- practical
+
+NOT:
+
+- omniscient
+- magical
+- overly automated
+
+---
+
+### 5.2 Advisors
+
+The kingdom is governed through semi-autonomous advisors.
+
+Initial roles include:
+
+| Role | Responsibility |
+|---|---|
+| Steward | Food, taxation, logistics |
+| Marshal | Defence, militia |
+| Merchant | Trade, exports |
+| Governor | Regional administration |
+
+---
+
+#### Advisor Attributes
+
+| Attribute | Purpose |
+|---|---|
+| Competence | Decision quality |
+| Loyalty | Alignment with crown |
+| Stress | Reliability under pressure |
+| Bias | Governance worldview |
+| Ambition | Risk of independence |
+| Authority | Autonomous power |
+
+---
+
+### 5.3 Operational Procedures
+
+Traditional RPG skills are replaced by:
+
+governance procedures.
+
+Examples:
+
+- Winter Reserve Accounting
+- Frontier Patrol Doctrine
+- Merchant Tax Balancing
+- Emergency Grain Logistics
+
+Procedures influence:
+
+- reasoning
+- recommendations
+- behaviour
+- priorities
+
+---
+
+#### Operational Capacity
+
+Advisors can only effectively maintain a limited number of procedures.
+
+Example:
+
+Governor Elric
+Operational Capacity: 3 Procedures
+
+Inspired by:
+
+- bounded cognition
+- AI context windows
+- organisational limits
+
+---
+
+### 5.4 Doctrine System
+
+Doctrine defines kingdom-wide governance philosophy.
+
+Example:
+
+WINTER POLICY
+
+Priority:
+1. Prevent famine
+2. Preserve morale
+3. Restrict exports
+
+Doctrine is interpreted differently by:
+
+- regions
+- governors
+- institutions
+
+This creates:
+
+- drift
+- ambiguity
+- unintended consequences
+
+---
+
+### 5.5 Administrative Capacity
+
+Administrative Capacity represents:
+
+> how much complexity the kingdom can coordinate.
+
+Generated by:
+
+- infrastructure
+- governance maturity
+- competent institutions
+- communication systems
+
+Consumed by:
+
+- expansion
+- instability
+- regional autonomy
+- political fragmentation
+
+Overextension creates:
+
+- delayed responses
+- regional drift
+- institutional collapse
+
+---
+
+## 6. World Structure
+
+The kingdom consists of:
+
+- frontier settlements
+- agricultural regions
+- trade ports
+- isolated communities
+
+Travel and communication are slow.
+
+Local governors often possess:
+
+- incomplete information
+- regional priorities
+- differing interpretations
+
+---
+
+## 7. Turn Structure
+
+Each turn represents a season.
+
+### Example Flow
+
+Reports
+
+STEWARD:
+“Grain stores are lower than expected.”
+
+MARSHAL:
+“Raiders sighted north of Stonewatch.”
+
+---
+
+Scribe Clarification
+
+SCRIBE:
+“How should the kingdom respond?”
+
+- [ ] Restrict exports
+- [ ] Purchase reserves
+- [ ] Increase militia patrols
+- [ ] Maintain current policy
+
+---
+
+Resolution
+
+Advisors interpret policy.
+
+Simulation resolves:
+
+- resources
+- morale
+- loyalty
+- instability
+- regional outcomes
+
+---
+
+## 8. Progression
+
+The player gradually evolves from:
+
+direct regional oversight
+
+to:
+
+institutional governance
+
+Expansion unlocks:
+
+- new governors
+- additional procedures
+- doctrine systems
+- administrative reforms
+- advanced governance structures
+
+---
+
+## 9. Failure States
+
+Failure is not binary.
+
+Regions may:
+
+- collapse
+- rebel
+- drift politically
+- become economically unstable
+- refuse central authority
+
+The greatest risk is:
+
+overextension.
+
+---
+
+## 10. Emotional Goals
+
+Players should feel:
+
+- responsible
+- uncertain
+- intelligent
+- politically pressured
+- attached to advisors
+- proud of institutional success
+
+The game should create stories like:
+
+> “My frontier governor saved the region during winter, but became politically independent.”
+
+---
+
+## 11. Platform Direction
+
+Primary target:
+
+tablet-first web experience
+
+Secondary:
+
+desktop browser
+
+The game should feel:
+
+- readable
+- calm
+- tactile
+- correspondence-driven
+
+---
+
+## 12. Long-Term Vision
+
+Four Warned: Regent evolves into:
+
+- a governance sandbox
+- institutional simulator
+- emergent political storytelling system
+- autonomous systems strategy game
+
+The ultimate challenge is not conquest.
+
+It is:
+
+> building institutions capable of surviving complexity and autonomy.
