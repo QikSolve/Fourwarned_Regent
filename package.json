@@ -10,6 +10,7 @@
     "test": "tsx --test src/lib/**/*.test.ts"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "next": "^15.5.18",
     "pg": "^8.20.0",
     "react": "^18",
