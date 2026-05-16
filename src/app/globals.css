@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-deep: #2c1810;
+  --parchment: #f4e4c1;
+  --parchment-dark: #e8d4a0;
+  --accent: #8b2635;
+  --gold: #c9a227;
+  --border-gold: #8b6914;
+  --text-dark: #2c1810;
+  --text-light: #f4e4c1;
+  --text-muted: #6b5744;
+}
+
+body {
+  background-color: var(--bg-deep);
+  color: var(--text-light);
+  font-family: Georgia, 'Times New Roman', serif;
+  min-height: 100vh;
+}
+
+.parchment {
+  background-color: var(--parchment);
+  color: var(--text-dark);
+}
+
+.parchment-dark {
+  background-color: var(--parchment-dark);
+  color: var(--text-dark);
+}
+
+.scrollbar-parchment::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-parchment::-webkit-scrollbar-track {
+  background: var(--parchment-dark);
+}
+.scrollbar-parchment::-webkit-scrollbar-thumb {
+  background: var(--border-gold);
+  border-radius: 3px;
+}
+
+.border-gold {
+  border-color: var(--border-gold);
+}
+
+.report-card {
+  transition: all 0.2s ease;
+}
+.report-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}

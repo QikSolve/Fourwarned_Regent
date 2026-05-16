@@ -1,0 +1,82 @@
+import type { ScribeClarification, ScribeConsequence } from './schemas';
+import { ScribeClarificationSchema, ScribeConsequenceSchema } from './schemas';
+import type { KingdomMetrics, Report, Season } from '@/types/game';
+
+/**
+ * Scribe AI layer.
+ *
+ * In production this calls an LLM via the Vercel AI SDK.
+ * For the prototype the responses are generated deterministically so the game
+ * is fully playable without API keys.  Replace the body of each function with
+ * a real `generateObject` / `streamText` call when you wire up the AI layer.
+ */
+
+export async function getScribeClarification(
+  report: Report,
+  metrics: KingdomMetrics
+): Promise<ScribeClarification> {
+  // Prototype: return structured deterministic guidance
+  const result: ScribeClarification = {
+    summary: report.scribesNote,
+    question: 'How should the kingdom respond to this matter?',
+    options: report.choices.map(c => ({
+      id: c.id,
+      label: c.label,
+      tradeoff: c.description,
+    })),
+    conflicts: [],
+  };
+
+  // Surface a conflict hint if treasury is strained alongside a costly action
+  if (metrics.gold < 40 && report.choices.some(c => (c.consequences.gold ?? 0) < -10)) {
+    result.conflicts = [
+      'Warning: Several responses carry significant treasury costs. Gold reserves are already low.',
+    ];
+  }
+
+  return ScribeClarificationSchema.parse(result);
+}
+
+export async function getScribeConsequenceSummary(
+  oldMetrics: KingdomMetrics,
+  newMetrics: KingdomMetrics,
+  season: Season,
+  year: number
+): Promise<ScribeConsequence> {
+  const aspects: Array<{ aspect: string; key: keyof KingdomMetrics; label: string }> = [
+    { aspect: 'Food Reserves', key: 'food', label: 'food' },
+    { aspect: 'Popular Morale', key: 'morale', label: 'morale' },
+    { aspect: 'Treasury', key: 'gold', label: 'gold' },
+    { aspect: 'Frontier Threat', key: 'threat', label: 'threat' },
+    { aspect: 'Administrative Strain', key: 'adminStrain', label: 'adminStrain' },
+  ];
+
+  const consequences = aspects.map(({ aspect, key }) => {
+    const delta = newMetrics[key] - oldMetrics[key];
+    return {
+      aspect,
+      direction: delta > 0
+        ? (key === 'threat' || key === 'adminStrain' ? 'worsened' : 'improved')
+        : delta < 0
+          ? (key === 'threat' || key === 'adminStrain' ? 'improved' : 'worsened')
+          : 'unchanged',
+      explanation: delta === 0
+        ? `${aspect} remains at ${newMetrics[key]}.`
+        : `${aspect} ${delta > 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)} to ${newMetrics[key]}.`,
+    } as { aspect: string; direction: 'improved' | 'worsened' | 'unchanged'; explanation: string };
+  });
+
+  const warnings: string[] = [];
+  if (newMetrics.food < 25) warnings.push('Food reserves are critically low. Famine threatens.');
+  if (newMetrics.threat > 75) warnings.push('Frontier threat is severe. Military action may be unavoidable.');
+  if (newMetrics.gold < 20) warnings.push('The treasury is nearly depleted. Fiscal crisis looms.');
+  if (newMetrics.morale < 25) warnings.push('Popular morale is dangerously low. Unrest may follow.');
+
+  const result: ScribeConsequence = {
+    summary: `The season has turned. Here is what has transpired under your governance — ${season}, Year ${year} begins.`,
+    consequences,
+    warnings,
+  };
+
+  return ScribeConsequenceSchema.parse(result);
+}
