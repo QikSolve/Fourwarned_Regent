@@ -4,7 +4,7 @@ import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
 import { generateConsequenceMessages, detectConflicts } from './scribeLogic';
 import { getScribeClarificationText, getScribeConsequenceText } from './ai/runtime';
-import { createSnapshot, migrateSnapshot } from './campaign/persistence';
+import { CAMPAIGN_STATE_VERSION, createSnapshot, migrateSnapshot } from './campaign/persistence';
 import { createNewCampaignState } from './campaign/createNewCampaignState';
 
 // suppress unused type imports - they're used via GameState
@@ -297,6 +297,7 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
       if (parsed.version > CAMPAIGN_STATE_VERSION) {
         return null;
       }
+    }
     const migrated = migrateSnapshot(parsed);
     if (!migrated) {
       return null;

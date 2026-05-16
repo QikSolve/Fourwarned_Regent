@@ -1,19 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getRuntimeMetrics } from '@/lib/observability/metrics';
-
-/**
- * GET /api/metrics
- * Returns runtime counters useful for monitoring and alerting.
- */
-export async function GET() {
-  try {
-    const metrics = await getRuntimeMetrics();
-    return NextResponse.json(metrics);
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to get metrics' }, { status: 500 });
-  }
-}
-import { NextResponse } from 'next/server';
 import { getAlertThresholds, getRuntimeMetrics } from '@/lib/observability/metrics';
 import { logApiError } from '@/lib/observability/logger';
 

@@ -33,7 +33,12 @@ export async function POST(request: Request) {
     const payload = await res.json();
     recordAiRequest(latency, false);
     // Return a small fingerprint rather than full payload
-    const modelNames = Array.isArray(payload?.data) ? payload.data.slice(0,5).map((m:any) => m.id) : undefined;
+    const modelNames = Array.isArray(payload?.data)
+      ? payload.data
+          .slice(0, 5)
+          .map((m: { id?: unknown }) => (typeof m.id === 'string' ? m.id : null))
+          .filter((id: string | null): id is string => id !== null)
+      : undefined;
     return NextResponse.json({ ok: true, provider: 'openai', latencyMs: latency, models: modelNames });
   } catch (err) {
     const latency = Date.now() - start;
