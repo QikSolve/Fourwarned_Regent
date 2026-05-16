@@ -65,7 +65,7 @@ export function AdvisorChatModal() {
   }
 
   function handleExport() {
-    if (!chatAdvisorId) return;
+    if (!chatAdvisorId || !advisor) return;
     const payload = {
       advisorId: chatAdvisorId,
       advisor: `${advisor.title} ${advisor.name}`,

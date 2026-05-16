@@ -55,7 +55,8 @@ export function MultiAdvisorWorkspace() {
       };
     }));
 
-    setMessages(prev => [...prev, ...advisorReplies.filter((value): value is CouncilMessage => value !== null)]);
+    const resolvedReplies = advisorReplies.filter(Boolean) as CouncilMessage[];
+    setMessages(prev => [...prev, ...resolvedReplies]);
     setLoading(false);
   }
 
