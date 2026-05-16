@@ -1,6 +1,7 @@
 import type { AdvisorRecommendation } from './schemas';
 import { AdvisorRecommendationSchema } from './schemas';
 import type { Advisor, KingdomMetrics } from '@/types/game';
+import { recordAiRequest } from '@/lib/observability/metrics';
 
 /**
  * Advisor AI layer.
@@ -63,6 +64,7 @@ export async function getAdvisorRecommendation(
   // If an OpenAI key is configured, attempt an LLM call. Otherwise, return
   // the deterministic prototype recommendation.
   if (process.env.OPENAI_API_KEY) {
+    const start = Date.now();
     try {
       const system = `You are an in-universe royal advisor generator. Given the advisor metadata
 and the kingdom metrics, emit a single JSON object matching this schema:\n{\n  \"advisor\": string,\n  \"concern\": string,\n  \"recommendation\": string,\n  \"risk\": string\n}`;
@@ -91,7 +93,9 @@ and the kingdom metrics, emit a single JSON object matching this schema:\n{\n  \
         const text = payload.choices?.[0]?.message?.content ?? '';
         try {
           const parsed = JSON.parse(text);
-          return AdvisorRecommendationSchema.parse(parsed);
+          const parsedResult = AdvisorRecommendationSchema.parse(parsed);
+          recordAiRequest(Date.now() - start, false);
+          return parsedResult;
         } catch {
           // fall through to deterministic
         }
@@ -99,6 +103,9 @@ and the kingdom metrics, emit a single JSON object matching this schema:\n{\n  \
       // if anything goes wrong, fall back to deterministic generator below
     } catch {
       // fall back
+    } finally {
+      // if we get here without returning, we used fallback for this attempt
+      recordAiRequest(Date.now() - (typeof start === 'number' ? start : Date.now()), true);
     }
   }
 

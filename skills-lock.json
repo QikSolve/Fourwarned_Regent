@@ -19,6 +19,12 @@
       "skillPath": "skills/develop-ai-functions-example/SKILL.md",
       "computedHash": "c83ef2e93700a05862e9d37fa7c21ca81d7a1b7b1de5c4ef758a379f2c158b97"
     },
+    "neon-postgres": {
+      "source": "neondatabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/neon-postgres/SKILL.md",
+      "computedHash": "8c6faa84ee17d412e2afb898aa00c1f1d398fb8302701b893984c738df9b1b31"
+    },
     "nextjs-best-practices": {
       "source": "sickn33/antigravity-awesome-skills",
       "sourceType": "github",

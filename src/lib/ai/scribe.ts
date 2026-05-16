@@ -1,6 +1,7 @@
 import type { ScribeClarification, ScribeConsequence } from './schemas';
 import { ScribeClarificationSchema, ScribeConsequenceSchema } from './schemas';
 import type { KingdomMetrics, Report, Season } from '@/types/game';
+import { recordAiRequest } from '@/lib/observability/metrics';
 
 /**
  * Scribe AI layer.
@@ -17,6 +18,7 @@ export async function getScribeClarification(
 ): Promise<ScribeClarification> {
   // If an OpenAI key is configured, try to generate structured clarification via LLM.
   if (process.env.OPENAI_API_KEY) {
+    const start = Date.now();
     try {
       const system = `You are a royal scribe assistant. Given the report and metrics, return a JSON object matching the schema:\n{\n  \"summary\": string,\n  \"question\": string,\n  \"options\": [{ id: string, label: string, tradeoff: string }],\n  \"conflicts\": [string]?\n}`;
 
@@ -45,13 +47,18 @@ export async function getScribeClarification(
         try {
           const parsed = JSON.parse(text);
           const validated = ScribeClarificationSchema.safeParse(parsed);
-          if (validated.success) return validated.data;
+          if (validated.success) {
+            recordAiRequest(Date.now() - start, false);
+            return validated.data;
+          }
         } catch {
           // fall through to deterministic
         }
       }
     } catch {
       // fall back to deterministic behavior
+    } finally {
+      recordAiRequest(Date.now() - (typeof start === 'number' ? start : Date.now()), true);
     }
   }
 
@@ -119,6 +126,7 @@ export async function getScribeConsequenceSummary(
   };
   // If an OpenAI key is present, offer a chance to produce a richer narrative
   if (process.env.OPENAI_API_KEY) {
+    const start = Date.now();
     try {
       const system = `You are a royal scribe. Produce a JSON object matching the schema:\n{\n  \"summary\": string,\n  \"consequences\": [{ aspect: string, direction: \"improved\"|\"worsened\"|\"unchanged\", explanation: string }],\n  \"warnings\": [string]?\n}`;
 
@@ -147,13 +155,18 @@ export async function getScribeConsequenceSummary(
         try {
           const parsed = JSON.parse(text);
           const validated = ScribeConsequenceSchema.safeParse(parsed);
-          if (validated.success) return validated.data;
+          if (validated.success) {
+            recordAiRequest(Date.now() - start, false);
+            return validated.data;
+          }
         } catch {
           // fall through to deterministic
         }
       }
     } catch {
       // fall back
+    } finally {
+      recordAiRequest(Date.now() - (typeof start === 'number' ? start : Date.now()), true);
     }
   }
 

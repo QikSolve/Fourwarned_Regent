@@ -8,8 +8,19 @@ const counters: Record<CounterName, number> = {
   apiFailure: 0,
 };
 
+// AI telemetry
+let aiRequestCount = 0;
+let aiFallbackCount = 0;
+let aiTotalLatencyMs = 0;
+
 export function incrementCounter(counter: CounterName): void {
   counters[counter] += 1;
+}
+
+export function recordAiRequest(latencyMs: number, usedFallback = false): void {
+  aiRequestCount += 1;
+  aiTotalLatencyMs += latencyMs;
+  if (usedFallback) aiFallbackCount += 1;
 }
 
 export async function getRuntimeMetrics(): Promise<{
@@ -17,12 +28,18 @@ export async function getRuntimeMetrics(): Promise<{
   turnAdvanceSuccess: number;
   turnAdvanceFailure: number;
   apiFailure: number;
+  aiRequestCount: number;
+  aiFallbackCount: number;
+  aiAverageLatencyMs: number | null;
 }> {
   return {
     activeCampaigns: await getCampaignCount(),
     turnAdvanceSuccess: counters.turnAdvanceSuccess,
     turnAdvanceFailure: counters.turnAdvanceFailure,
     apiFailure: counters.apiFailure,
+    aiRequestCount,
+    aiFallbackCount,
+    aiAverageLatencyMs: aiRequestCount > 0 ? Math.round(aiTotalLatencyMs / aiRequestCount) : null,
   };
 }
 
