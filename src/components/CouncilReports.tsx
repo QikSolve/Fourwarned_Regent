@@ -73,10 +73,11 @@ export function CouncilReports() {
   const activeReportId = useGameStore(s => s.activeReportId);
   const selectReport = useGameStore(s => s.selectReport);
   const advanceTurn = useGameStore(s => s.advanceTurn);
+  const isAdvancingTurn = useGameStore(s => s.isAdvancingTurn);
 
   const respondedCount = reports.filter(r => r.status === 'responded').length;
   const totalCount = reports.length;
-  const canAdvance = respondedCount > 0;
+  const canAdvance = respondedCount > 0 && !isAdvancingTurn;
 
   return (
     <div className="flex flex-col h-full">
@@ -119,9 +120,9 @@ export function CouncilReports() {
             cursor: canAdvance ? 'pointer' : 'not-allowed',
           }}
         >
-          {canAdvance ? '⏭ Advance Season' : '⚠ Respond to Reports First'}
+          {isAdvancingTurn ? '⏳ Advancing...' : canAdvance ? '⏭ Advance Season' : '⚠ Respond to Reports First'}
         </button>
-        {!canAdvance && (
+        {!canAdvance && !isAdvancingTurn && (
           <p className="text-xs text-center mt-1" style={{ color: '#6b5744' }}>
             Address at least one report before advancing
           </p>

@@ -390,6 +390,7 @@ async function saveServerCampaign(campaignId: string, state: GameState): Promise
 }
 
 interface GameStore extends GameState {
+  isAdvancingTurn: boolean;
   campaignId: string | null;
   initGame: () => Promise<void>;
   saveCampaignState: () => Promise<boolean>;
@@ -433,6 +434,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
   return {
     ...initial,
+    isAdvancingTurn: false,
     campaignId: null,
 
     initGame: async () => {
@@ -444,7 +446,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (campaignId) {
         writePersistedCampaignId(campaignId);
       }
-      set({ ...fresh, campaignId });
+      set({ ...fresh, isAdvancingTurn: false, campaignId });
       void get().saveCampaignState();
     },
 
@@ -488,6 +490,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       set({
         ...loaded,
+        isAdvancingTurn: false,
         campaignId,
         showProceduresModal: false,
         selectedAdvisorId: null,
@@ -502,7 +505,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     resetCampaignState: () => {
       clearPersistedCampaignState();
       const fresh = createNewCampaignState();
-      set({ ...fresh, campaignId: null });
+      set({ ...fresh, isAdvancingTurn: false, campaignId: null });
       void get().initGame();
     },
 
@@ -615,10 +618,14 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     advanceTurn: () => {
+      if (get().isAdvancingTurn) return;
+
       const state = get();
       const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
       const respondedReports = reports.filter(report => report.status === 'responded');
       if (respondedReports.length === 0) return;
+
+      set({ isAdvancingTurn: true, phase: 'resolution' });
 
       const applyTurnResult = (newMetrics: KingdomMetrics, newAdvisors: Advisor[]) => {
         const nextSeason: Season = season === 'Spring' ? 'Summer'
@@ -648,6 +655,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         };
 
         set({
+          isAdvancingTurn: false,
           phase: 'reports',
           season: nextSeason,
           year: nextYear,
@@ -676,37 +684,42 @@ export const useGameStore = create<GameStore>((set, get) => {
       };
 
       void (async () => {
-        const campaignId = get().campaignId ?? readPersistedCampaignId();
-        if (campaignId) {
-          try {
-            const response = await fetch('/api/turn/advance', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                campaignId,
-                metrics,
-                advisors,
-                reports,
-                procedures,
-                doctrines,
-                season,
-                year,
-              }),
-            });
-            if (response.ok) {
-              const data: unknown = await response.json();
-              if (isRecord(data) && isRecord(data.newMetrics) && Array.isArray(data.newAdvisors)) {
-                applyTurnResult(data.newMetrics as KingdomMetrics, data.newAdvisors as Advisor[]);
-                return;
+        try {
+          const campaignId = get().campaignId ?? readPersistedCampaignId();
+          if (campaignId) {
+            try {
+              const response = await fetch('/api/turn/advance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  campaignId,
+                  metrics,
+                  advisors,
+                  reports,
+                  procedures,
+                  doctrines,
+                  season,
+                  year,
+                }),
+              });
+              if (response.ok) {
+                const data: unknown = await response.json();
+                if (isRecord(data) && isRecord(data.newMetrics) && Array.isArray(data.newAdvisors)) {
+                  applyTurnResult(data.newMetrics as KingdomMetrics, data.newAdvisors as Advisor[]);
+                  return;
+                }
               }
+            } catch {
+              // fall back to local deterministic simulation
             }
-          } catch {
-            // fall back to local deterministic simulation
           }
-        }
 
-        const localResult = resolveTurn(metrics, advisors, reports, procedures, doctrines, season, year);
-        applyTurnResult(localResult.newMetrics, localResult.newAdvisors);
+          const localResult = resolveTurn(metrics, advisors, reports, procedures, doctrines, season, year);
+          applyTurnResult(localResult.newMetrics, localResult.newAdvisors);
+        } catch (error) {
+          console.error('Failed to advance turn.', error);
+          set({ isAdvancingTurn: false, phase: 'reports' });
+        }
       })();
     },
   };
