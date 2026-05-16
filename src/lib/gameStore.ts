@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage } from './gameTypes';
+import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage, AdvisorConversation, ConversationMessage } from './gameTypes';
 import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
 import { generateConsequenceMessages, detectConflicts } from './scribeLogic';
-import { getScribeClarificationText, getScribeConsequenceText } from './ai/runtime';
+import { getScribeClarificationText, getScribeConsequenceText, getAdvisorChatReply } from './ai/runtime';
 import { CAMPAIGN_STATE_VERSION, createSnapshot, migrateSnapshot } from './campaign/persistence';
 import { createNewCampaignState } from './campaign/createNewCampaignState';
 
@@ -12,9 +12,12 @@ void ({} as Report);
 void ({} as Procedure);
 void ({} as DoctrineCategory);
 void ({} as ScribeMessage);
+void ({} as AdvisorConversation);
+void ({} as ConversationMessage);
 
 const CAMPAIGN_STORAGE_KEY = 'fourwarned:campaign';
 const CAMPAIGN_ID_STORAGE_KEY = 'fourwarned:campaign-id';
+const CONVERSATIONS_STORAGE_KEY = 'fourwarned:conversations';
 
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
@@ -278,6 +281,31 @@ function sanitizeState(candidate: unknown, fallback: GameState): GameState {
   };
 }
 
+function readPersistedConversations(): Partial<Record<AdvisorId, AdvisorConversation>> {
+  if (!canUseBrowserStorage()) return {};
+  try {
+    const raw = window.localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    return parsed as Partial<Record<AdvisorId, AdvisorConversation>>;
+  } catch {
+    return {};
+  }
+}
+
+function writePersistedConversations(conversations: Record<AdvisorId, AdvisorConversation>): void {
+  if (!canUseBrowserStorage()) return;
+  try {
+    const persistent = Object.fromEntries(
+      Object.entries(conversations).filter(([, conv]) => conv.isPersistent)
+    );
+    window.localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(persistent));
+  } catch {
+    // no-op
+  }
+}
+
 function readPersistedCampaignState(fallback: GameState): GameState | null {
   if (!canUseBrowserStorage()) return null;
 
@@ -393,6 +421,10 @@ async function saveServerCampaign(campaignId: string, state: GameState): Promise
 interface GameStore extends GameState {
   isAdvancingTurn: boolean;
   campaignId: string | null;
+  conversations: Record<AdvisorId, AdvisorConversation>;
+  isChatLoading: boolean;
+  showChatModal: boolean;
+  chatAdvisorId: AdvisorId | null;
   initGame: () => Promise<void>;
   saveCampaignState: () => Promise<boolean>;
   loadCampaignState: () => Promise<boolean>;
@@ -406,6 +438,11 @@ interface GameStore extends GameState {
   openProceduresModal: (advisorId: AdvisorId) => void;
   closeProceduresModal: () => void;
   dismissWelcome: () => void;
+  openChatModal: (advisorId: AdvisorId) => void;
+  closeChatModal: () => void;
+  sendChatMessage: (advisorId: AdvisorId, text: string) => Promise<void>;
+  clearConversation: (advisorId: AdvisorId) => void;
+  toggleConversationPersistence: (advisorId: AdvisorId) => void;
 }
 
 function pickGameState(store: GameStore): GameState {
@@ -437,6 +474,10 @@ export const useGameStore = create<GameStore>((set, get) => {
     ...initial,
     isAdvancingTurn: false,
     campaignId: null,
+    conversations: {} as Record<AdvisorId, AdvisorConversation>,
+    isChatLoading: false,
+    showChatModal: false,
+    chatAdvisorId: null,
 
     initGame: async () => {
       const loaded = await get().loadCampaignState();
@@ -616,6 +657,95 @@ export const useGameStore = create<GameStore>((set, get) => {
     closeProceduresModal: () => {
       set({ showProceduresModal: false, selectedAdvisorId: null });
       void get().saveCampaignState();
+    },
+
+    openChatModal: (advisorId) => {
+      const persisted = readPersistedConversations();
+      set(state => {
+        const existing = state.conversations[advisorId];
+        const persistedConv = persisted[advisorId];
+        const conversation: AdvisorConversation = existing ?? persistedConv ?? { messages: [], isPersistent: false };
+        return {
+          showChatModal: true,
+          chatAdvisorId: advisorId,
+          conversations: { ...state.conversations, [advisorId]: conversation },
+        };
+      });
+    },
+
+    closeChatModal: () => {
+      set({ showChatModal: false, chatAdvisorId: null });
+    },
+
+    sendChatMessage: async (advisorId, text) => {
+      const state = get();
+      const advisor = state.advisors.find(a => a.id === advisorId);
+      if (!advisor) return;
+
+      const userMsg: ConversationMessage = {
+        id: generateId(),
+        role: 'user',
+        text,
+        timestamp: Date.now(),
+      };
+
+      set(s => ({
+        isChatLoading: true,
+        conversations: {
+          ...s.conversations,
+          [advisorId]: {
+            ...s.conversations[advisorId] ?? { messages: [], isPersistent: false },
+            messages: [...(s.conversations[advisorId]?.messages ?? []), userMsg],
+          },
+        },
+      }));
+
+      const currentConv = get().conversations[advisorId] ?? { messages: [], isPersistent: false };
+      const history = currentConv.messages
+        .filter(m => m.id !== userMsg.id)
+        .map(m => ({ role: m.role, text: m.text }));
+
+      const reply = await getAdvisorChatReply(advisor, state.metrics, history, text);
+
+      const advisorMsg: ConversationMessage = {
+        id: generateId(),
+        role: 'advisor',
+        text: reply.text,
+        timestamp: Date.now(),
+        source: reply.source,
+      };
+
+      set(s => {
+        const updated: AdvisorConversation = {
+          ...s.conversations[advisorId] ?? { messages: [], isPersistent: false },
+          messages: [...(s.conversations[advisorId]?.messages ?? []), advisorMsg],
+        };
+        const updatedConvs = { ...s.conversations, [advisorId]: updated };
+        if (updated.isPersistent) {
+          writePersistedConversations(updatedConvs);
+        }
+        return { isChatLoading: false, conversations: updatedConvs };
+      });
+    },
+
+    clearConversation: (advisorId) => {
+      set(s => {
+        const existing = s.conversations[advisorId] ?? { messages: [], isPersistent: false };
+        const updated = { ...existing, messages: [] };
+        const updatedConvs = { ...s.conversations, [advisorId]: updated };
+        writePersistedConversations(updatedConvs);
+        return { conversations: updatedConvs };
+      });
+    },
+
+    toggleConversationPersistence: (advisorId) => {
+      set(s => {
+        const existing = s.conversations[advisorId] ?? { messages: [], isPersistent: false };
+        const updated = { ...existing, isPersistent: !existing.isPersistent };
+        const updatedConvs = { ...s.conversations, [advisorId]: updated };
+        writePersistedConversations(updatedConvs);
+        return { conversations: updatedConvs };
+      });
     },
 
     advanceTurn: () => {

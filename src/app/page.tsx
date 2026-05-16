@@ -9,6 +9,7 @@ import { ActiveReport } from '@/components/ActiveReport';
 import { ScribePanel } from '@/components/ScribePanel';
 import { DoctrineEditor } from '@/components/DoctrineEditor';
 import { ProceduresModal } from '@/components/ProceduresModal';
+import { AdvisorChatModal } from '@/components/AdvisorChatModal';
 
 export default function Home() {
   const initGame = useGameStore(s => s.initGame);
@@ -64,6 +65,8 @@ export default function Home() {
 
       {/* Procedures Modal */}
       {showProceduresModal && <ProceduresModal />}
+      {/* Advisor Chat Modal */}
+      <AdvisorChatModal />
     </div>
   );
 }
