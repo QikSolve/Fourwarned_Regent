@@ -286,6 +286,17 @@ function readPersistedCampaignState(fallback: GameState): GameState | null {
     if (!raw) return null;
 
     const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+
+    const isVersionedSnapshot = 'version' in parsed || 'state' in parsed || 'savedAt' in parsed;
+    if (isVersionedSnapshot) {
+      if (typeof parsed.version !== 'number' || !Number.isInteger(parsed.version)) {
+        return null;
+      }
+
+      if (parsed.version > CAMPAIGN_STATE_VERSION) {
+        return null;
+      }
     const migrated = migrateSnapshot(parsed);
     if (!migrated) {
       return null;
