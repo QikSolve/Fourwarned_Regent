@@ -838,7 +838,8 @@ export const useGameStore = create<GameStore>((set, get) => {
           }));
           get().saveCampaignState();
         });
-      } catch {
+      } catch (error) {
+        console.error('Failed to advance turn.', error);
         set({ isAdvancingTurn: false, phase: 'reports' });
       }
     },
