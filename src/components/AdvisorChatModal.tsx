@@ -3,12 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
 import { ADVISOR_META } from '@/lib/ai/advisorMeta';
-import type { AdvisorId } from '@/lib/gameTypes';
+import type { AdvisorId, AdvisorTone } from '@/lib/gameTypes';
 
 const QUICK_CHIPS = ['Why?', 'Alternative', 'Pros/Cons', 'Explain more'] as const;
 
 const TONE_OPTIONS = ['Concise', 'Analytical', 'Collaborative'] as const;
-type Tone = (typeof TONE_OPTIONS)[number];
 
 function TypingIndicator() {
   return (
@@ -37,15 +36,16 @@ export function AdvisorChatModal() {
   const sendChatMessage = useGameStore(s => s.sendChatMessage);
   const clearConversation = useGameStore(s => s.clearConversation);
   const toggleConversationPersistence = useGameStore(s => s.toggleConversationPersistence);
+  const setConversationTone = useGameStore(s => s.setConversationTone);
 
   const [inputText, setInputText] = useState('');
-  const [tone, setTone] = useState<Tone>('Concise');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const advisor = advisors.find(a => a.id === chatAdvisorId);
   const conversation = chatAdvisorId ? conversations[chatAdvisorId as AdvisorId] : null;
   const messages = useMemo(() => conversation?.messages ?? [], [conversation]);
   const isPersistent = conversation?.isPersistent ?? false;
+  const tone = (conversation?.tone ?? 'Concise') as AdvisorTone;
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -57,11 +57,30 @@ export function AdvisorChatModal() {
 
   const meta = ADVISOR_META[advisor.id] ?? { avatar: '👤', bio: '' };
 
-  function handleSend(text: string) {
+  function handleSend(text: string, options?: { isQuickFollowUp?: boolean }) {
     const trimmed = text.trim();
     if (!trimmed || isChatLoading) return;
     setInputText('');
-    void sendChatMessage(chatAdvisorId as AdvisorId, trimmed);
+    void sendChatMessage(chatAdvisorId as AdvisorId, trimmed, options);
+  }
+
+  function handleExport() {
+    if (!chatAdvisorId) return;
+    const payload = {
+      advisorId: chatAdvisorId,
+      advisor: `${advisor.title} ${advisor.name}`,
+      tone,
+      isPersistent,
+      exportedAt: new Date().toISOString(),
+      messages,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `advisor-${chatAdvisorId}-conversation.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -142,7 +161,7 @@ export function AdvisorChatModal() {
             {TONE_OPTIONS.map(t => (
               <button
                 key={t}
-                onClick={() => setTone(t)}
+                onClick={() => setConversationTone(chatAdvisorId as AdvisorId, t)}
                 className="text-xs px-2 py-0.5 rounded transition-colors"
                 style={{
                   backgroundColor: tone === t ? '#c9a227' : '#ede0c4',
@@ -184,6 +203,15 @@ export function AdvisorChatModal() {
                 />
               </span>
             </label>
+            <button
+              onClick={handleExport}
+              className="text-xs px-2 py-0.5 rounded"
+              style={{ backgroundColor: '#ede0c4', color: '#6b5744', border: '1px solid #c4a882' }}
+              title="Export transcript as JSON"
+              aria-label="Export conversation transcript"
+            >
+              Export
+            </button>
           </div>
         </div>
 
@@ -224,11 +252,11 @@ export function AdvisorChatModal() {
                       className="text-xs px-1 rounded"
                       style={{
                         fontSize: '10px',
-                        color: msg.source === 'ai' ? '#065f46' : '#92400e',
-                        backgroundColor: msg.source === 'ai' ? '#d1fae5' : '#fef3c7',
+                        color: msg.source === 'ai' ? '#065f46' : msg.source === 'moderated' ? '#7c2d12' : '#92400e',
+                        backgroundColor: msg.source === 'ai' ? '#d1fae5' : msg.source === 'moderated' ? '#ffedd5' : '#fef3c7',
                       }}
                     >
-                      {msg.source === 'ai' ? '✦ AI' : '◈ Fallback'}
+                      {msg.source === 'ai' ? '✦ AI' : msg.source === 'moderated' ? '⚑ Moderated' : '◈ Fallback'}
                     </span>
                   </div>
                 )}
@@ -251,7 +279,7 @@ export function AdvisorChatModal() {
           {QUICK_CHIPS.map(chip => (
             <button
               key={chip}
-              onClick={() => handleSend(chip)}
+              onClick={() => handleSend(chip, { isQuickFollowUp: true })}
               disabled={isChatLoading}
               className="text-xs px-2.5 py-1 rounded-full transition-colors"
               style={{

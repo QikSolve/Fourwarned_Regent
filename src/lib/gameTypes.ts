@@ -112,10 +112,13 @@ export type ConversationMessage = {
   role: 'user' | 'advisor';
   text: string;
   timestamp: number;
-  source?: 'ai' | 'fallback';
+  source?: 'ai' | 'fallback' | 'moderated';
 };
+
+export type AdvisorTone = 'Concise' | 'Analytical' | 'Collaborative';
 
 export type AdvisorConversation = {
   messages: ConversationMessage[];
   isPersistent: boolean;
+  tone: AdvisorTone;
 };

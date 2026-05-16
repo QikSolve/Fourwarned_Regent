@@ -1,4 +1,4 @@
-import type { Advisor, ConversationMessage, KingdomMetrics, Report, Season } from '@/lib/gameTypes';
+import type { Advisor, AdvisorTone, ConversationMessage, KingdomMetrics, Report, Season } from '@/lib/gameTypes';
 import {
   AdvisorRecommendationSchema,
   ScribeClarificationSchema,
@@ -71,7 +71,7 @@ function normalizeConsequenceText(summary: string, consequences: Array<{ aspect:
   return `${summary}\n\n${details}${warningText}`;
 }
 
-export type ChatReply = { text: string; source: 'ai' | 'fallback' };
+export type ChatReply = { text: string; source: 'ai' | 'fallback' | 'moderated' };
 
 function buildChatFallback(advisor: Advisor, userMessage: string): ChatReply {
   const msg = userMessage.toLowerCase();
@@ -91,7 +91,9 @@ export async function getAdvisorChatReply(
   advisor: Advisor,
   metrics: KingdomMetrics,
   history: Pick<ConversationMessage, 'role' | 'text'>[],
-  userMessage: string
+  userMessage: string,
+  tone: AdvisorTone = 'Concise',
+  isQuickFollowUp = false
 ): Promise<ChatReply> {
   try {
     const response = await fetch('/api/advisor/chat', {
@@ -102,6 +104,8 @@ export async function getAdvisorChatReply(
         metrics: normalizeMetrics(metrics),
         messages: history,
         userMessage,
+        tone,
+        isQuickFollowUp,
       }),
     });
 
@@ -114,7 +118,8 @@ export async function getAdvisorChatReply(
       return buildChatFallback(advisor, userMessage);
     }
 
-    return { text: data.reply, source: 'ai' };
+    const source = data.source === 'moderated' ? 'moderated' : data.source === 'fallback' ? 'fallback' : 'ai';
+    return { text: data.reply, source };
   } catch {
     return buildChatFallback(advisor, userMessage);
   }
