@@ -14,9 +14,9 @@ export function ScribePanel() {
   const isWelcome = phase === 'welcome';
 
   return (
-    <div className="rounded-lg border-2 p-4 mb-4" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
-      <div className="text-center mb-3 pb-2 border-b" style={{ borderColor: '#8b6914' }}>
-        <div className="text-sm font-bold" style={{ color: '#8b2635' }}>📜 The Royal Scribe</div>
+    <section className="ledger-panel p-4 mb-4">
+      <div className="text-center mb-3 pb-2 border-b ledger-divider">
+        <div className="text-sm font-bold ledger-title">📜 The Royal Scribe</div>
       </div>
 
       <div
@@ -27,20 +27,20 @@ export function ScribePanel() {
           <div
             key={msg.id}
             className={`mb-3 pb-3 ${idx < messages.length - 1 ? 'border-b' : ''}`}
-            style={{ borderColor: '#c4a882', opacity: idx === 0 ? 1 : 0.7 }}
+            style={{ borderColor: 'var(--outline-variant)', opacity: idx === 0 ? 1 : 0.72 }}
           >
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-bold" style={{ color: '#8b2635' }}>
+              <span className="text-xs font-bold ledger-title">
                 {msg.type === 'welcome' ? '👑 Welcome' :
                   msg.type === 'conflict' ? '⚡ Conflict' :
                   msg.type === 'consequence' ? '📊 Consequences' :
                   '📝 Guidance'}
               </span>
-              <span className="text-xs" style={{ color: '#6b5744' }}>
+              <span className="text-xs ledger-subtitle">
                 {msg.season}, Year {msg.year}
               </span>
             </div>
-            <p className="text-xs leading-relaxed whitespace-pre-line" style={{ color: '#2c1810' }}>
+            <p className="text-xs leading-relaxed whitespace-pre-line text-[var(--on-surface)]">
               {msg.text}
             </p>
           </div>
@@ -50,12 +50,11 @@ export function ScribePanel() {
       {isWelcome && (
         <button
           onClick={dismissWelcome}
-          className="w-full mt-3 py-2 px-4 rounded border-2 font-bold text-sm"
-          style={{ backgroundColor: '#8b2635', color: '#f4e4c1', borderColor: '#6b1d28' }}
+          className="wax-button wax-button--primary w-full mt-3 py-2 px-4 text-sm font-bold"
         >
           Begin Governance →
         </button>
       )}
-    </div>
+    </section>
   );
 }

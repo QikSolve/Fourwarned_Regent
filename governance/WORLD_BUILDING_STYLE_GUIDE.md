@@ -264,6 +264,23 @@ Avoid:
 - bright fantasy colors
 - excessive ornamentation
 
+### Regent's Authority Interface System
+
+The production UI should follow the "Regent's Authority" style system:
+
+- Dark parchment and iron surfaces.
+- Candlelight gold as the primary interactive accent.
+- Faded crimson for negative or martial actions.
+- Forest green for prosperity and success.
+- EB Garamond for headings, Literata for body copy.
+- A centered, fixed-width 1120px ledger layout.
+- Subtle rounded corners only; avoid pill-shaped controls.
+- No glassmorphism or neon treatment.
+- Buttons should feel like wax seals.
+- Inputs should feel like quill lines.
+- Cards should feel like parchment decrees.
+- Lists should read as ledgers with ruled horizontal separators.
+
 ---
 
 ## 10. Audio Direction

@@ -7,13 +7,13 @@ export function AdvisorPanel() {
   const advisors = useGameStore(s => s.advisors);
 
   return (
-    <div className="rounded-lg border-2 p-4" style={{ backgroundColor: 'rgba(44,24,16,0.5)', borderColor: '#8b6914' }}>
-      <h2 className="text-sm font-bold mb-3 text-center" style={{ color: '#c9a227' }}>
+    <section className="ledger-panel p-4">
+      <h2 className="text-sm font-bold mb-3 text-center ledger-title">
         ⚜ Royal Advisors
       </h2>
       {advisors.map(advisor => (
         <AdvisorCard key={advisor.id} advisor={advisor} />
       ))}
-    </div>
+    </section>
   );
 }

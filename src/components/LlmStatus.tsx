@@ -19,15 +19,15 @@ export default function LlmStatus() {
   }, []);
 
   const badge = enabled === null ? (
-    <span style={{display:'inline-block', padding:'4px 8px', borderRadius:12, background:'#eee', color:'#333', fontSize:12}}>LLM: checking</span>
+    <span className="sigil-chip" style={{ backgroundColor: 'var(--surface-container-high)', color: 'var(--on-surface-variant)' }}>LLM: checking</span>
   ) : enabled ? (
-    <span style={{display:'inline-block', padding:'4px 8px', borderRadius:12, background:'#22c55e', color:'white', fontSize:12}}>LLM: connected</span>
+    <span className="sigil-chip sigil-chip--positive">LLM: connected</span>
   ) : (
-    <span style={{display:'inline-block', padding:'4px 8px', borderRadius:12, background:'#ef4444', color:'white', fontSize:12}}>LLM: offline</span>
+    <span className="sigil-chip sigil-chip--negative">LLM: offline</span>
   );
 
   return (
-    <div style={{position:'fixed', right:16, top:16, zIndex:2000}}>
+    <div className="fixed right-4 top-4 z-[2000]">
       {badge}
     </div>
   );
