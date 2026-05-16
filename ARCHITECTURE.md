@@ -158,19 +158,19 @@ Store evolving campaign state as JSONB early on to avoid over-engineering.
 # Prototype Folder Structure
 
 ```
-/app
+/src/app
   /api
     /campaign/start
     /turn/advance
     /scribe/draft
     /advisor/recommend
-  /components
-    CouncilReports.tsx
-    ScribePanel.tsx
-    AdvisorCard.tsx
-    DoctrineEditor.tsx
-    KingdomOverview.tsx
-/lib
+/src/components
+  CouncilReports.tsx
+  ScribePanel.tsx
+  AdvisorCard.tsx
+  DoctrineEditor.tsx
+  KingdomOverview.tsx
+/src/lib
   /simulation
     resolveTurn.ts
     resources.ts
@@ -181,7 +181,7 @@ Store evolving campaign state as JSONB early on to avoid over-engineering.
     schemas.ts
   /db
     client.ts
-/types
+/src/types
   game.ts
   advisor.ts
   region.ts

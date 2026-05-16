@@ -3,12 +3,16 @@ import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, King
 import { generateReports } from './reportGenerator';
 import { resolveTurn } from './simulation/resolveTurn';
 import { generateWelcomeMessage, generateConsequenceMessages, detectConflicts } from './scribeLogic';
+import { getScribeClarificationText, getScribeConsequenceText } from './ai/runtime';
 
 // suppress unused type imports - they're used via GameState
 void ({} as Report);
 void ({} as Procedure);
 void ({} as DoctrineCategory);
 void ({} as ScribeMessage);
+
+const CAMPAIGN_STORAGE_KEY = 'fourwarned:campaign';
+const CAMPAIGN_STATE_VERSION = 1;
 
 const INITIAL_METRICS: KingdomMetrics = {
   food: 45,
@@ -204,12 +208,373 @@ const INITIAL_DOCTRINES = [
   },
 ];
 
+type PersistedCampaignSnapshot = {
+  version: number;
+  savedAt: string;
+  state: GameState;
+};
+
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9);
 }
 
+function canUseBrowserStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function clampMetric(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function cloneMetrics(metrics: KingdomMetrics): KingdomMetrics {
+  return { ...metrics };
+}
+
+function cloneAdvisors(advisors: Advisor[]): Advisor[] {
+  return advisors.map(advisor => ({ ...advisor, assignedProcedures: [...advisor.assignedProcedures] }));
+}
+
+function cloneReports(reports: Report[]): Report[] {
+  return reports.map(report => ({
+    ...report,
+    choices: report.choices.map(choice => ({ ...choice, consequences: { ...choice.consequences } })),
+  }));
+}
+
+function cloneProcedures(procedures: Procedure[]): Procedure[] {
+  return procedures.map(procedure => ({ ...procedure, effects: { ...procedure.effects } }));
+}
+
+function cloneDoctrines(doctrines: DoctrineCategory[]): DoctrineCategory[] {
+  return doctrines.map(doctrine => ({
+    ...doctrine,
+    options: doctrine.options.map(option => ({ ...option, effects: { ...option.effects } })),
+  }));
+}
+
+function cloneMessages(messages: ScribeMessage[]): ScribeMessage[] {
+  return messages.map(message => ({ ...message }));
+}
+
+function createNewCampaignState(): GameState {
+  const season: Season = 'Spring';
+  const year = 1;
+  const metrics = cloneMetrics(INITIAL_METRICS);
+  const advisors = cloneAdvisors(INITIAL_ADVISORS);
+  const reports = generateReports(metrics, advisors, season, year);
+  const welcomeMsg = generateWelcomeMessage(season, year);
+  const conflicts = detectConflicts(metrics, reports, advisors);
+  const messages: ScribeMessage[] = [
+    { id: generateId(), text: welcomeMsg, type: 'welcome', season, year },
+    ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season, year })),
+  ];
+
+  return {
+    phase: 'welcome',
+    season,
+    year,
+    metrics,
+    advisors,
+    reports,
+    procedures: cloneProcedures(INITIAL_PROCEDURES),
+    doctrines: cloneDoctrines(INITIAL_DOCTRINES),
+    scribeMessages: messages,
+    activeReportId: null,
+    showProceduresModal: false,
+    selectedAdvisorId: null,
+    turnHistory: [],
+  };
+}
+
+function toPersistedSnapshot(state: GameState): PersistedCampaignSnapshot {
+  return {
+    version: CAMPAIGN_STATE_VERSION,
+    savedAt: new Date().toISOString(),
+    state: {
+      ...state,
+      metrics: cloneMetrics(state.metrics),
+      advisors: cloneAdvisors(state.advisors),
+      reports: cloneReports(state.reports),
+      procedures: cloneProcedures(state.procedures),
+      doctrines: cloneDoctrines(state.doctrines),
+      scribeMessages: cloneMessages(state.scribeMessages),
+      turnHistory: state.turnHistory.map(record => ({
+        ...record,
+        metricsSnapshot: cloneMetrics(record.metricsSnapshot),
+        reportsSummary: [...record.reportsSummary],
+      })),
+    },
+  };
+}
+
+function sanitizeState(candidate: unknown, fallback: GameState): GameState {
+  if (!isRecord(candidate)) {
+    return fallback;
+  }
+
+  const phase = candidate.phase === 'welcome' || candidate.phase === 'reports' || candidate.phase === 'resolution' || candidate.phase === 'consequences'
+    ? candidate.phase
+    : fallback.phase;
+  const season = candidate.season === 'Spring' || candidate.season === 'Summer' || candidate.season === 'Autumn' || candidate.season === 'Winter'
+    ? candidate.season
+    : fallback.season;
+  const year = typeof candidate.year === 'number' && Number.isFinite(candidate.year) && candidate.year >= 1
+    ? Math.floor(candidate.year)
+    : fallback.year;
+
+  const rawMetrics = isRecord(candidate.metrics) ? candidate.metrics : fallback.metrics;
+  const metrics: KingdomMetrics = {
+    food: clampMetric(typeof rawMetrics.food === 'number' ? rawMetrics.food : fallback.metrics.food),
+    morale: clampMetric(typeof rawMetrics.morale === 'number' ? rawMetrics.morale : fallback.metrics.morale),
+    gold: clampMetric(typeof rawMetrics.gold === 'number' ? rawMetrics.gold : fallback.metrics.gold),
+    threat: clampMetric(typeof rawMetrics.threat === 'number' ? rawMetrics.threat : fallback.metrics.threat),
+    adminStrain: clampMetric(typeof rawMetrics.adminStrain === 'number' ? rawMetrics.adminStrain : fallback.metrics.adminStrain),
+  };
+
+  const advisors = Array.isArray(candidate.advisors)
+    ? candidate.advisors
+        .filter(isRecord)
+        .map((advisor, index) => {
+          const base = fallback.advisors[index] ?? fallback.advisors[0];
+          const id = advisor.id === 'steward' || advisor.id === 'marshal' || advisor.id === 'merchant' || advisor.id === 'governor' ? advisor.id : base.id;
+          return {
+            id,
+            name: typeof advisor.name === 'string' ? advisor.name : base.name,
+            title: typeof advisor.title === 'string' ? advisor.title : base.title,
+            region: typeof advisor.region === 'string' ? advisor.region : base.region,
+            competence: clampMetric(typeof advisor.competence === 'number' ? advisor.competence : base.competence),
+            loyalty: clampMetric(typeof advisor.loyalty === 'number' ? advisor.loyalty : base.loyalty),
+            stress: clampMetric(typeof advisor.stress === 'number' ? advisor.stress : base.stress),
+            bias: typeof advisor.bias === 'string' ? advisor.bias : base.bias,
+            ambition: clampMetric(typeof advisor.ambition === 'number' ? advisor.ambition : base.ambition),
+            authority: clampMetric(typeof advisor.authority === 'number' ? advisor.authority : base.authority),
+            status: advisor.status === 'Active' || advisor.status === 'Concerned' || advisor.status === 'Critical' ? advisor.status : base.status,
+            assignedProcedures: Array.isArray(advisor.assignedProcedures) ? advisor.assignedProcedures.filter((value): value is string => typeof value === 'string') : [...base.assignedProcedures],
+            maxProcedures: typeof advisor.maxProcedures === 'number' && Number.isFinite(advisor.maxProcedures) ? Math.max(1, Math.floor(advisor.maxProcedures)) : base.maxProcedures,
+          } as Advisor;
+        })
+    : cloneAdvisors(fallback.advisors);
+
+  const reports = Array.isArray(candidate.reports)
+    ? candidate.reports
+        .filter(isRecord)
+        .map((report, index) => {
+          const base = fallback.reports[index];
+          const advisorId = report.advisorId === 'steward' || report.advisorId === 'marshal' || report.advisorId === 'merchant' || report.advisorId === 'governor'
+            ? report.advisorId
+            : base?.advisorId ?? 'steward';
+          const urgency = report.urgency === 'low' || report.urgency === 'medium' || report.urgency === 'high' || report.urgency === 'critical'
+            ? report.urgency
+            : base?.urgency ?? 'medium';
+
+          const choices = Array.isArray(report.choices)
+            ? report.choices.filter(isRecord).map((choice, choiceIndex) => {
+                const baseChoice = base?.choices[choiceIndex];
+                const rawConsequences = isRecord(choice.consequences) ? choice.consequences : baseChoice?.consequences ?? {};
+                const consequences: Partial<KingdomMetrics> = {
+                  food: typeof rawConsequences.food === 'number' ? rawConsequences.food : undefined,
+                  morale: typeof rawConsequences.morale === 'number' ? rawConsequences.morale : undefined,
+                  gold: typeof rawConsequences.gold === 'number' ? rawConsequences.gold : undefined,
+                  threat: typeof rawConsequences.threat === 'number' ? rawConsequences.threat : undefined,
+                  adminStrain: typeof rawConsequences.adminStrain === 'number' ? rawConsequences.adminStrain : undefined,
+                };
+
+                return {
+                  id: typeof choice.id === 'string' ? choice.id : baseChoice?.id ?? `choice-${choiceIndex}`,
+                  label: typeof choice.label === 'string' ? choice.label : baseChoice?.label ?? 'Option',
+                  description: typeof choice.description === 'string' ? choice.description : baseChoice?.description ?? '',
+                  consequences,
+                };
+              })
+            : cloneReports(base ? [base] : []).at(0)?.choices ?? [];
+
+          return {
+            id: typeof report.id === 'string' ? report.id : base?.id ?? `report-${index}`,
+            advisorId,
+            season: report.season === 'Spring' || report.season === 'Summer' || report.season === 'Autumn' || report.season === 'Winter'
+              ? report.season
+              : season,
+            year: typeof report.year === 'number' && Number.isFinite(report.year) && report.year >= 1 ? Math.floor(report.year) : year,
+            title: typeof report.title === 'string' ? report.title : base?.title ?? 'Council Report',
+            body: typeof report.body === 'string' ? report.body : base?.body ?? '',
+            urgency,
+            choices,
+            selectedChoiceId: typeof report.selectedChoiceId === 'string' || report.selectedChoiceId === null ? report.selectedChoiceId : null,
+            freeTextInstruction: typeof report.freeTextInstruction === 'string' ? report.freeTextInstruction : '',
+            status: report.status === 'pending' || report.status === 'responded' ? report.status : 'pending',
+            scribesNote: typeof report.scribesNote === 'string' ? report.scribesNote : base?.scribesNote ?? '',
+          } as Report;
+        })
+    : cloneReports(fallback.reports);
+
+  const procedures = Array.isArray(candidate.procedures)
+    ? candidate.procedures.filter(isRecord).map((procedure, index) => {
+        const base = fallback.procedures[index] ?? fallback.procedures[0];
+        const rawEffects = isRecord(procedure.effects) ? procedure.effects : base.effects;
+        const effects: Partial<KingdomMetrics> = {
+          food: typeof rawEffects.food === 'number' ? rawEffects.food : undefined,
+          morale: typeof rawEffects.morale === 'number' ? rawEffects.morale : undefined,
+          gold: typeof rawEffects.gold === 'number' ? rawEffects.gold : undefined,
+          threat: typeof rawEffects.threat === 'number' ? rawEffects.threat : undefined,
+          adminStrain: typeof rawEffects.adminStrain === 'number' ? rawEffects.adminStrain : undefined,
+        };
+        return {
+          id: typeof procedure.id === 'string' ? procedure.id : base.id,
+          name: typeof procedure.name === 'string' ? procedure.name : base.name,
+          description: typeof procedure.description === 'string' ? procedure.description : base.description,
+          assignedTo: procedure.assignedTo === 'steward' || procedure.assignedTo === 'marshal' || procedure.assignedTo === 'merchant' || procedure.assignedTo === 'governor' || procedure.assignedTo === null
+            ? procedure.assignedTo
+            : null,
+          effects,
+        } as Procedure;
+      })
+    : cloneProcedures(fallback.procedures);
+
+  const doctrines = Array.isArray(candidate.doctrines)
+    ? candidate.doctrines.filter(isRecord).map((doctrine, index) => {
+        const base = fallback.doctrines[index] ?? fallback.doctrines[0];
+        const options = Array.isArray(doctrine.options)
+          ? doctrine.options.filter(isRecord).map((option, optionIndex) => {
+              const baseOption = base.options[optionIndex] ?? base.options[0];
+              const rawEffects = isRecord(option.effects) ? option.effects : baseOption.effects;
+              const effects: Partial<KingdomMetrics> = {
+                food: typeof rawEffects.food === 'number' ? rawEffects.food : undefined,
+                morale: typeof rawEffects.morale === 'number' ? rawEffects.morale : undefined,
+                gold: typeof rawEffects.gold === 'number' ? rawEffects.gold : undefined,
+                threat: typeof rawEffects.threat === 'number' ? rawEffects.threat : undefined,
+                adminStrain: typeof rawEffects.adminStrain === 'number' ? rawEffects.adminStrain : undefined,
+              };
+
+              return {
+                id: typeof option.id === 'string' ? option.id : baseOption.id,
+                label: typeof option.label === 'string' ? option.label : baseOption.label,
+                description: typeof option.description === 'string' ? option.description : baseOption.description,
+                effects,
+              };
+            })
+          : base.options.map(option => ({ ...option, effects: { ...option.effects } }));
+
+        return {
+          id: typeof doctrine.id === 'string' ? doctrine.id : base.id,
+          name: typeof doctrine.name === 'string' ? doctrine.name : base.name,
+          selected: typeof doctrine.selected === 'string' ? doctrine.selected : base.selected,
+          options,
+        } as DoctrineCategory;
+      })
+    : cloneDoctrines(fallback.doctrines);
+
+  const scribeMessages = Array.isArray(candidate.scribeMessages)
+    ? candidate.scribeMessages.filter(isRecord).map((message, index) => {
+        const fallbackMessage = fallback.scribeMessages[index];
+        return {
+          id: typeof message.id === 'string' ? message.id : fallbackMessage?.id ?? `msg-${index}`,
+          text: typeof message.text === 'string' ? message.text : fallbackMessage?.text ?? '',
+          type: message.type === 'guidance' || message.type === 'conflict' || message.type === 'consequence' || message.type === 'welcome'
+            ? message.type
+            : fallbackMessage?.type ?? 'guidance',
+          season: message.season === 'Spring' || message.season === 'Summer' || message.season === 'Autumn' || message.season === 'Winter'
+            ? message.season
+            : season,
+          year: typeof message.year === 'number' && Number.isFinite(message.year) && message.year >= 1 ? Math.floor(message.year) : year,
+        } as ScribeMessage;
+      })
+    : cloneMessages(fallback.scribeMessages);
+
+  const turnHistory = Array.isArray(candidate.turnHistory)
+    ? candidate.turnHistory.filter(isRecord).map((record) => {
+        const metricsSnapshot = isRecord(record.metricsSnapshot) ? record.metricsSnapshot : fallback.metrics;
+        return {
+          season: record.season === 'Spring' || record.season === 'Summer' || record.season === 'Autumn' || record.season === 'Winter'
+            ? record.season
+            : season,
+          year: typeof record.year === 'number' && Number.isFinite(record.year) && record.year >= 1 ? Math.floor(record.year) : year,
+          metricsSnapshot: {
+            food: clampMetric(typeof metricsSnapshot.food === 'number' ? metricsSnapshot.food : fallback.metrics.food),
+            morale: clampMetric(typeof metricsSnapshot.morale === 'number' ? metricsSnapshot.morale : fallback.metrics.morale),
+            gold: clampMetric(typeof metricsSnapshot.gold === 'number' ? metricsSnapshot.gold : fallback.metrics.gold),
+            threat: clampMetric(typeof metricsSnapshot.threat === 'number' ? metricsSnapshot.threat : fallback.metrics.threat),
+            adminStrain: clampMetric(typeof metricsSnapshot.adminStrain === 'number' ? metricsSnapshot.adminStrain : fallback.metrics.adminStrain),
+          },
+          reportsSummary: Array.isArray(record.reportsSummary) ? record.reportsSummary.filter((value): value is string => typeof value === 'string') : [],
+        };
+      })
+    : fallback.turnHistory.map(record => ({
+        ...record,
+        metricsSnapshot: { ...record.metricsSnapshot },
+        reportsSummary: [...record.reportsSummary],
+      }));
+
+  return {
+    phase,
+    season,
+    year,
+    metrics,
+    advisors: advisors.length > 0 ? advisors : cloneAdvisors(fallback.advisors),
+    reports,
+    procedures,
+    doctrines,
+    scribeMessages: scribeMessages.length > 0 ? scribeMessages : cloneMessages(fallback.scribeMessages),
+    activeReportId: typeof candidate.activeReportId === 'string' || candidate.activeReportId === null ? candidate.activeReportId : null,
+    showProceduresModal: typeof candidate.showProceduresModal === 'boolean' ? candidate.showProceduresModal : false,
+    selectedAdvisorId: candidate.selectedAdvisorId === 'steward' || candidate.selectedAdvisorId === 'marshal' || candidate.selectedAdvisorId === 'merchant' || candidate.selectedAdvisorId === 'governor' || candidate.selectedAdvisorId === null
+      ? candidate.selectedAdvisorId
+      : null,
+    turnHistory,
+  };
+}
+
+function readPersistedCampaignState(fallback: GameState): GameState | null {
+  if (!canUseBrowserStorage()) return null;
+
+  try {
+    const raw = window.localStorage.getItem(CAMPAIGN_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) return null;
+
+    if (typeof parsed.version === 'number' && parsed.version > CAMPAIGN_STATE_VERSION) {
+      return null;
+    }
+
+    const payload = isRecord(parsed.state)
+      ? parsed.state
+      : parsed;
+
+    return sanitizeState(payload, fallback);
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCampaignState(state: GameState): boolean {
+  if (!canUseBrowserStorage()) return false;
+  try {
+    window.localStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(toPersistedSnapshot(state)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearPersistedCampaignState() {
+  if (!canUseBrowserStorage()) return;
+  try {
+    window.localStorage.removeItem(CAMPAIGN_STORAGE_KEY);
+  } catch {
+    // no-op
+  }
+}
+
 interface GameStore extends GameState {
   initGame: () => void;
+  saveCampaignState: () => boolean;
+  loadCampaignState: () => boolean;
+  resetCampaignState: () => void;
   selectReport: (id: string | null) => void;
   chooseReportOption: (reportId: string, choiceId: string) => void;
   setFreeTextInstruction: (reportId: string, text: string) => void;
@@ -221,171 +586,249 @@ interface GameStore extends GameState {
   dismissWelcome: () => void;
 }
 
-export const useGameStore = create<GameStore>((set, get) => ({
-  phase: 'welcome',
-  season: 'Spring',
-  year: 1,
-  metrics: INITIAL_METRICS,
-  advisors: INITIAL_ADVISORS,
-  reports: [],
-  procedures: INITIAL_PROCEDURES,
-  doctrines: INITIAL_DOCTRINES,
-  scribeMessages: [],
-  activeReportId: null,
-  showProceduresModal: false,
-  selectedAdvisorId: null,
-  turnHistory: [],
+function pickGameState(store: GameStore): GameState {
+  return {
+    phase: store.phase,
+    season: store.season,
+    year: store.year,
+    metrics: cloneMetrics(store.metrics),
+    advisors: cloneAdvisors(store.advisors),
+    reports: cloneReports(store.reports),
+    procedures: cloneProcedures(store.procedures),
+    doctrines: cloneDoctrines(store.doctrines),
+    scribeMessages: cloneMessages(store.scribeMessages),
+    activeReportId: store.activeReportId,
+    showProceduresModal: store.showProceduresModal,
+    selectedAdvisorId: store.selectedAdvisorId,
+    turnHistory: store.turnHistory.map(record => ({
+      ...record,
+      metricsSnapshot: cloneMetrics(record.metricsSnapshot),
+      reportsSummary: [...record.reportsSummary],
+    })),
+  };
+}
 
-  initGame: () => {
-    const metrics = INITIAL_METRICS;
-    const advisors = INITIAL_ADVISORS;
-    const season: Season = 'Spring';
-    const year = 1;
-    const reports = generateReports(metrics, advisors, season, year);
-    const welcomeMsg = generateWelcomeMessage(season, year);
-    const conflicts = detectConflicts(metrics, reports, advisors);
-    
-    const messages: ScribeMessage[] = [
-      { id: generateId(), text: welcomeMsg, type: 'welcome', season, year },
-      ...conflicts.map(c => ({ id: generateId(), text: c, type: 'conflict' as const, season, year })),
-    ];
+export const useGameStore = create<GameStore>((set, get) => {
+  const initial = createNewCampaignState();
 
-    set({
-      phase: 'welcome',
-      season,
-      year,
-      metrics,
-      advisors: advisors.map(a => ({ ...a })),
-      reports,
-      procedures: INITIAL_PROCEDURES.map(p => ({ ...p })),
-      doctrines: INITIAL_DOCTRINES.map(d => ({ ...d, options: d.options.map(o => ({ ...o })) })),
-      scribeMessages: messages,
-      activeReportId: null,
-      turnHistory: [],
-    });
-  },
+  return {
+    ...initial,
 
-  dismissWelcome: () => {
-    set({ phase: 'reports' });
-  },
+    initGame: () => {
+      const loaded = get().loadCampaignState();
+      if (loaded) return;
 
-  selectReport: (id) => {
-    set({ activeReportId: id });
-  },
+      const fresh = createNewCampaignState();
+      set(fresh);
+      get().saveCampaignState();
+    },
 
-  chooseReportOption: (reportId, choiceId) => {
-    set(state => ({
-      reports: state.reports.map(r =>
-        r.id === reportId
-          ? { ...r, selectedChoiceId: choiceId, status: 'responded' }
-          : r
-      ),
-    }));
-  },
+    saveCampaignState: () => {
+      const snapshot = pickGameState(get());
+      return writePersistedCampaignState(snapshot);
+    },
 
-  setFreeTextInstruction: (reportId, text) => {
-    set(state => ({
-      reports: state.reports.map(r =>
-        r.id === reportId ? { ...r, freeTextInstruction: text } : r
-      ),
-    }));
-  },
-
-  updateDoctrine: (categoryId, optionId) => {
-    set(state => ({
-      doctrines: state.doctrines.map(d =>
-        d.id === categoryId ? { ...d, selected: optionId } : d
-      ),
-    }));
-  },
-
-  assignProcedure: (procedureId, advisorId) => {
-    set(state => {
-      const procedure = state.procedures.find(p => p.id === procedureId);
-      if (!procedure) return state;
-
-      const targetAdvisor = advisorId ? state.advisors.find(a => a.id === advisorId) : null;
-      if (targetAdvisor && targetAdvisor.assignedProcedures.length >= targetAdvisor.maxProcedures) {
-        return state;
+    loadCampaignState: () => {
+      const fallback = createNewCampaignState();
+      const loaded = readPersistedCampaignState(fallback);
+      if (!loaded) {
+        return false;
       }
 
-      return {
-        procedures: state.procedures.map(p =>
-          p.id === procedureId ? { ...p, assignedTo: advisorId } : p
+      set({
+        ...loaded,
+        showProceduresModal: false,
+        selectedAdvisorId: null,
+      });
+
+      return true;
+    },
+
+    resetCampaignState: () => {
+      clearPersistedCampaignState();
+      const fresh = createNewCampaignState();
+      set(fresh);
+      get().saveCampaignState();
+    },
+
+    dismissWelcome: () => {
+      set({ phase: 'reports' });
+      get().saveCampaignState();
+    },
+
+    selectReport: (id) => {
+      set({ activeReportId: id });
+      get().saveCampaignState();
+
+      if (!id) return;
+
+      const state = get();
+      const report = state.reports.find(r => r.id === id);
+      if (!report) return;
+
+      void getScribeClarificationText(report, state.metrics).then(result => {
+        set(current => {
+          const alreadyPresent = current.scribeMessages.some(
+            msg => msg.type === 'guidance' && msg.season === current.season && msg.year === current.year && msg.text.includes(`Regarding "${report.title}"`)
+          );
+          if (alreadyPresent) {
+            return current;
+          }
+
+          return {
+            scribeMessages: [
+              ...current.scribeMessages,
+              {
+                id: generateId(),
+                text: result.text,
+                type: 'guidance',
+                season: current.season,
+                year: current.year,
+              },
+            ],
+          };
+        });
+        get().saveCampaignState();
+      });
+    },
+
+    chooseReportOption: (reportId, choiceId) => {
+      set(state => ({
+        reports: state.reports.map(report =>
+          report.id === reportId
+            ? { ...report, selectedChoiceId: choiceId, status: 'responded' }
+            : report
         ),
-        advisors: state.advisors.map(a => {
-          if (procedure.assignedTo && a.id === procedure.assignedTo) {
-            return { ...a, assignedProcedures: a.assignedProcedures.filter(id => id !== procedureId) };
-          }
-          if (advisorId && a.id === advisorId) {
-            return { ...a, assignedProcedures: [...a.assignedProcedures, procedureId] };
-          }
-          return a;
+      }));
+      get().saveCampaignState();
+    },
+
+    setFreeTextInstruction: (reportId, text) => {
+      set(state => ({
+        reports: state.reports.map(report =>
+          report.id === reportId ? { ...report, freeTextInstruction: text } : report
+        ),
+      }));
+      get().saveCampaignState();
+    },
+
+    updateDoctrine: (categoryId, optionId) => {
+      set(state => ({
+        doctrines: state.doctrines.map(doctrine =>
+          doctrine.id === categoryId ? { ...doctrine, selected: optionId } : doctrine
+        ),
+      }));
+      get().saveCampaignState();
+    },
+
+    assignProcedure: (procedureId, advisorId) => {
+      set(state => {
+        const procedure = state.procedures.find(item => item.id === procedureId);
+        if (!procedure) return state;
+
+        const targetAdvisor = advisorId ? state.advisors.find(advisor => advisor.id === advisorId) : null;
+        if (targetAdvisor && targetAdvisor.assignedProcedures.length >= targetAdvisor.maxProcedures) {
+          return state;
+        }
+
+        return {
+          procedures: state.procedures.map(item =>
+            item.id === procedureId ? { ...item, assignedTo: advisorId } : item
+          ),
+          advisors: state.advisors.map(advisor => {
+            if (procedure.assignedTo && advisor.id === procedure.assignedTo) {
+              return { ...advisor, assignedProcedures: advisor.assignedProcedures.filter(id => id !== procedureId) };
+            }
+            if (advisorId && advisor.id === advisorId) {
+              return { ...advisor, assignedProcedures: [...advisor.assignedProcedures, procedureId] };
+            }
+            return advisor;
+          }),
+        };
+      });
+      get().saveCampaignState();
+    },
+
+    openProceduresModal: (advisorId) => {
+      set({ showProceduresModal: true, selectedAdvisorId: advisorId });
+      get().saveCampaignState();
+    },
+
+    closeProceduresModal: () => {
+      set({ showProceduresModal: false, selectedAdvisorId: null });
+      get().saveCampaignState();
+    },
+
+    advanceTurn: () => {
+      const state = get();
+      const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
+
+      const respondedReports = reports.filter(report => report.status === 'responded');
+      if (respondedReports.length === 0) return;
+
+      const { newMetrics, newAdvisors } = resolveTurn(
+        metrics,
+        advisors,
+        reports,
+        procedures,
+        doctrines,
+        season,
+        year
+      );
+
+      const nextSeason: Season = season === 'Spring' ? 'Summer'
+        : season === 'Summer' ? 'Autumn'
+        : season === 'Autumn' ? 'Winter'
+        : 'Spring';
+      const nextYear = season === 'Winter' ? year + 1 : year;
+
+      const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
+      const fallbackConsequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
+      const fallbackConsequenceId = fallbackConsequenceMessages[0]?.id ?? null;
+      const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
+
+      const newMessages: ScribeMessage[] = [
+        ...fallbackConsequenceMessages,
+        ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season: nextSeason, year: nextYear })),
+      ];
+
+      const turnRecord = {
+        season,
+        year,
+        metricsSnapshot: { ...metrics },
+        reportsSummary: reports.filter(report => report.status === 'responded').map(report => {
+          const choice = report.choices.find(item => item.id === report.selectedChoiceId);
+          return `${report.advisorId}: ${choice?.label ?? 'No response'}`;
         }),
       };
-    });
-  },
 
-  openProceduresModal: (advisorId) => {
-    set({ showProceduresModal: true, selectedAdvisorId: advisorId });
-  },
+      set({
+        phase: 'reports',
+        season: nextSeason,
+        year: nextYear,
+        metrics: newMetrics,
+        advisors: newAdvisors,
+        reports: newReports,
+        scribeMessages: newMessages,
+        activeReportId: null,
+        turnHistory: [...state.turnHistory, turnRecord],
+      });
+      get().saveCampaignState();
 
-  closeProceduresModal: () => {
-    set({ showProceduresModal: false, selectedAdvisorId: null });
-  },
+      if (!fallbackConsequenceId) return;
 
-  advanceTurn: () => {
-    const state = get();
-    const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
+      void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
+        if (!result) return;
 
-    const respondedReports = reports.filter(r => r.status === 'responded');
-    if (respondedReports.length === 0) return;
-
-    const { newMetrics, newAdvisors } = resolveTurn(
-      metrics,
-      advisors,
-      reports,
-      procedures,
-      doctrines,
-      season,
-      year
-    );
-
-    const nextSeason: Season = season === 'Spring' ? 'Summer'
-      : season === 'Summer' ? 'Autumn'
-      : season === 'Autumn' ? 'Winter'
-      : 'Spring';
-    const nextYear = season === 'Winter' ? year + 1 : year;
-
-    const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
-    const consequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
-    const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
-
-    const newMessages: ScribeMessage[] = [
-      ...consequenceMessages,
-      ...conflicts.map(c => ({ id: generateId(), text: c, type: 'conflict' as const, season: nextSeason, year: nextYear })),
-    ];
-
-    const turnRecord = {
-      season,
-      year,
-      metricsSnapshot: { ...metrics },
-      reportsSummary: reports.filter(r => r.status === 'responded').map(r => {
-        const choice = r.choices.find(c => c.id === r.selectedChoiceId);
-        return `${r.advisorId}: ${choice?.label ?? 'No response'}`;
-      }),
-    };
-
-    set({
-      phase: 'reports',
-      season: nextSeason,
-      year: nextYear,
-      metrics: newMetrics,
-      advisors: newAdvisors,
-      reports: newReports,
-      scribeMessages: newMessages,
-      activeReportId: null,
-      turnHistory: [...state.turnHistory, turnRecord],
-    });
-  },
-}));
+        set(current => ({
+          scribeMessages: current.scribeMessages.map(message =>
+            message.id === fallbackConsequenceId
+              ? { ...message, text: result.text }
+              : message
+          ),
+        }));
+        get().saveCampaignState();
+      });
+    },
+  };
+});
