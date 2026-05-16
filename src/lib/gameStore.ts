@@ -571,6 +571,7 @@ function clearPersistedCampaignState() {
 }
 
 interface GameStore extends GameState {
+  isAdvancingTurn: boolean;
   initGame: () => void;
   saveCampaignState: () => boolean;
   loadCampaignState: () => boolean;
@@ -613,13 +614,14 @@ export const useGameStore = create<GameStore>((set, get) => {
 
   return {
     ...initial,
+    isAdvancingTurn: false,
 
     initGame: () => {
       const loaded = get().loadCampaignState();
       if (loaded) return;
 
       const fresh = createNewCampaignState();
-      set(fresh);
+      set({ ...fresh, isAdvancingTurn: false });
       get().saveCampaignState();
     },
 
@@ -637,6 +639,7 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       set({
         ...loaded,
+        isAdvancingTurn: false,
         showProceduresModal: false,
         selectedAdvisorId: null,
       });
@@ -647,7 +650,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     resetCampaignState: () => {
       clearPersistedCampaignState();
       const fresh = createNewCampaignState();
-      set(fresh);
+      set({ ...fresh, isAdvancingTurn: false });
       get().saveCampaignState();
     },
 
@@ -760,75 +763,84 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     advanceTurn: () => {
+      if (get().isAdvancingTurn) return;
+
       const state = get();
       const { metrics, advisors, reports, procedures, doctrines, season, year } = state;
 
       const respondedReports = reports.filter(report => report.status === 'responded');
       if (respondedReports.length === 0) return;
 
-      const { newMetrics, newAdvisors } = resolveTurn(
-        metrics,
-        advisors,
-        reports,
-        procedures,
-        doctrines,
-        season,
-        year
-      );
+      set({ isAdvancingTurn: true, phase: 'resolution' });
 
-      const nextSeason: Season = season === 'Spring' ? 'Summer'
-        : season === 'Summer' ? 'Autumn'
-        : season === 'Autumn' ? 'Winter'
-        : 'Spring';
-      const nextYear = season === 'Winter' ? year + 1 : year;
+      try {
+        const { newMetrics, newAdvisors } = resolveTurn(
+          metrics,
+          advisors,
+          reports,
+          procedures,
+          doctrines,
+          season,
+          year
+        );
 
-      const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
-      const fallbackConsequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
-      const fallbackConsequenceId = fallbackConsequenceMessages[0]?.id ?? null;
-      const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
+        const nextSeason: Season = season === 'Spring' ? 'Summer'
+          : season === 'Summer' ? 'Autumn'
+          : season === 'Autumn' ? 'Winter'
+          : 'Spring';
+        const nextYear = season === 'Winter' ? year + 1 : year;
 
-      const newMessages: ScribeMessage[] = [
-        ...fallbackConsequenceMessages,
-        ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season: nextSeason, year: nextYear })),
-      ];
+        const newReports = generateReports(newMetrics, newAdvisors, nextSeason, nextYear);
+        const fallbackConsequenceMessages = generateConsequenceMessages(metrics, newMetrics, reports, nextSeason, nextYear);
+        const fallbackConsequenceId = fallbackConsequenceMessages[0]?.id ?? null;
+        const conflicts = detectConflicts(newMetrics, newReports, newAdvisors);
 
-      const turnRecord = {
-        season,
-        year,
-        metricsSnapshot: { ...metrics },
-        reportsSummary: reports.filter(report => report.status === 'responded').map(report => {
-          const choice = report.choices.find(item => item.id === report.selectedChoiceId);
-          return `${report.advisorId}: ${choice?.label ?? 'No response'}`;
-        }),
-      };
+        const newMessages: ScribeMessage[] = [
+          ...fallbackConsequenceMessages,
+          ...conflicts.map(conflict => ({ id: generateId(), text: conflict, type: 'conflict' as const, season: nextSeason, year: nextYear })),
+        ];
 
-      set({
-        phase: 'reports',
-        season: nextSeason,
-        year: nextYear,
-        metrics: newMetrics,
-        advisors: newAdvisors,
-        reports: newReports,
-        scribeMessages: newMessages,
-        activeReportId: null,
-        turnHistory: [...state.turnHistory, turnRecord],
-      });
-      get().saveCampaignState();
+        const turnRecord = {
+          season,
+          year,
+          metricsSnapshot: { ...metrics },
+          reportsSummary: reports.filter(report => report.status === 'responded').map(report => {
+            const choice = report.choices.find(item => item.id === report.selectedChoiceId);
+            return `${report.advisorId}: ${choice?.label ?? 'No response'}`;
+          }),
+        };
 
-      if (!fallbackConsequenceId) return;
-
-      void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
-        if (!result) return;
-
-        set(current => ({
-          scribeMessages: current.scribeMessages.map(message =>
-            message.id === fallbackConsequenceId
-              ? { ...message, text: result.text }
-              : message
-          ),
-        }));
+        set({
+          isAdvancingTurn: false,
+          phase: 'reports',
+          season: nextSeason,
+          year: nextYear,
+          metrics: newMetrics,
+          advisors: newAdvisors,
+          reports: newReports,
+          scribeMessages: newMessages,
+          activeReportId: null,
+          turnHistory: [...state.turnHistory, turnRecord],
+        });
         get().saveCampaignState();
-      });
+
+        if (!fallbackConsequenceId) return;
+
+        void getScribeConsequenceText(metrics, newMetrics, nextSeason, nextYear).then(result => {
+          if (!result) return;
+
+          set(current => ({
+            scribeMessages: current.scribeMessages.map(message =>
+              message.id === fallbackConsequenceId
+                ? { ...message, text: result.text }
+                : message
+            ),
+          }));
+          get().saveCampaignState();
+        });
+      } catch {
+        set({ isAdvancingTurn: false, phase: 'reports' });
+      }
     },
   };
 });
