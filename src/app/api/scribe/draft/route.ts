@@ -2,28 +2,24 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getScribeClarification, getScribeConsequenceSummary } from '@/lib/ai/scribe';
 import type { Report, KingdomMetrics, Season } from '@/types/game';
-
-const MetricsSchema = z.object({
-  food: z.number().min(0).max(100),
-  morale: z.number().min(0).max(100),
-  gold: z.number().min(0).max(100),
-  threat: z.number().min(0).max(100),
-  adminStrain: z.number().min(0).max(100),
-});
+import { KingdomMetricsSchema, ReportSchema, SeasonSchema } from '@/lib/contracts/gameplay';
+import { ScribeClarificationSchema, ScribeConsequenceSchema } from '@/lib/ai/schemas';
+import { incrementCounter } from '@/lib/observability/metrics';
+import { logApiError } from '@/lib/observability/logger';
 
 const ClarificationRequestSchema = z.object({
   action: z.literal('clarify'),
-  report: z.unknown(),
-  metrics: MetricsSchema,
-});
+  report: ReportSchema,
+  metrics: KingdomMetricsSchema,
+}).strict();
 
 const ConsequenceRequestSchema = z.object({
   action: z.literal('consequence'),
-  oldMetrics: MetricsSchema,
-  newMetrics: MetricsSchema,
-  season: z.enum(['Spring', 'Summer', 'Autumn', 'Winter']),
+  oldMetrics: KingdomMetricsSchema,
+  newMetrics: KingdomMetricsSchema,
+  season: SeasonSchema,
   year: z.number().min(1),
-});
+}).strict();
 
 const RequestSchema = z.discriminatedUnion('action', [
   ClarificationRequestSchema,
@@ -48,7 +44,11 @@ export async function POST(request: Request) {
         parsed.data.report as Report,
         parsed.data.metrics as KingdomMetrics
       );
-      return NextResponse.json(result);
+      const validated = ScribeClarificationSchema.safeParse(result);
+      if (!validated.success) {
+        return NextResponse.json({ error: validated.error.flatten() }, { status: 500 });
+      }
+      return NextResponse.json(validated.data);
     }
 
     // consequence
@@ -59,8 +59,14 @@ export async function POST(request: Request) {
       season as Season,
       year
     );
-    return NextResponse.json(result);
-  } catch {
+    const validated = ScribeConsequenceSchema.safeParse(result);
+    if (!validated.success) {
+      return NextResponse.json({ error: validated.error.flatten() }, { status: 500 });
+    }
+    return NextResponse.json(validated.data);
+  } catch (error) {
+    incrementCounter('apiFailure');
+    logApiError('scribe.draft.failed', error, {});
     return NextResponse.json({ error: 'Failed to draft Scribe response' }, { status: 500 });
   }
 }

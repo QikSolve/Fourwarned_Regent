@@ -2,19 +2,15 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAdvisorRecommendation } from '@/lib/ai/advisors';
 import type { Advisor, KingdomMetrics } from '@/types/game';
-
-const MetricsSchema = z.object({
-  food: z.number().min(0).max(100),
-  morale: z.number().min(0).max(100),
-  gold: z.number().min(0).max(100),
-  threat: z.number().min(0).max(100),
-  adminStrain: z.number().min(0).max(100),
-});
+import { AdvisorSchema, KingdomMetricsSchema } from '@/lib/contracts/gameplay';
+import { AdvisorRecommendationSchema } from '@/lib/ai/schemas';
+import { incrementCounter } from '@/lib/observability/metrics';
+import { logApiError } from '@/lib/observability/logger';
 
 const RequestSchema = z.object({
-  advisor: z.unknown(),
-  metrics: MetricsSchema,
-});
+  advisor: AdvisorSchema,
+  metrics: KingdomMetricsSchema,
+}).strict();
 
 /**
  * POST /api/advisor/recommend
@@ -34,8 +30,15 @@ export async function POST(request: Request) {
       parsed.data.metrics as KingdomMetrics
     );
 
-    return NextResponse.json(result);
-  } catch {
+    const validated = AdvisorRecommendationSchema.safeParse(result);
+    if (!validated.success) {
+      return NextResponse.json({ error: validated.error.flatten() }, { status: 500 });
+    }
+
+    return NextResponse.json(validated.data);
+  } catch (error) {
+    incrementCounter('apiFailure');
+    logApiError('advisor.recommend.failed', error, {});
     return NextResponse.json({ error: 'Failed to get advisor recommendation' }, { status: 500 });
   }
 }

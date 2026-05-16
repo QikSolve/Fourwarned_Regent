@@ -1,6 +1,7 @@
 import type { AdvisorRecommendation } from './schemas';
 import { AdvisorRecommendationSchema } from './schemas';
 import type { Advisor, KingdomMetrics } from '@/types/game';
+import { recordAiRequest } from '@/lib/observability/metrics';
 
 /**
  * Advisor AI layer.
@@ -60,6 +61,54 @@ export async function getAdvisorRecommendation(
   advisor: Advisor,
   metrics: KingdomMetrics
 ): Promise<AdvisorRecommendation> {
+  // If an OpenAI key is configured, attempt an LLM call. Otherwise, return
+  // the deterministic prototype recommendation.
+  if (process.env.OPENAI_API_KEY) {
+    const start = Date.now();
+    try {
+      const system = `You are an in-universe royal advisor generator. Given the advisor metadata
+and the kingdom metrics, emit a single JSON object matching this schema:\n{\n  \"advisor\": string,\n  \"concern\": string,\n  \"recommendation\": string,\n  \"risk\": string\n}`;
+
+      const user = `Advisor: ${advisor.title} ${advisor.name} (id: ${advisor.id})\nMetrics: ${JSON.stringify(metrics)}`;
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.0,
+          max_tokens: 400,
+        }),
+      });
+
+      if (res.ok) {
+        const payload = await res.json();
+        const text = payload.choices?.[0]?.message?.content ?? '';
+        try {
+          const parsed = JSON.parse(text);
+          const parsedResult = AdvisorRecommendationSchema.parse(parsed);
+          recordAiRequest(Date.now() - start, false);
+          return parsedResult;
+        } catch {
+          // fall through to deterministic
+        }
+      }
+      // if anything goes wrong, fall back to deterministic generator below
+    } catch {
+      // fall back
+    } finally {
+      // if we get here without returning, we used fallback for this attempt
+      recordAiRequest(Date.now() - (typeof start === 'number' ? start : Date.now()), true);
+    }
+  }
+
   const generator = ADVISOR_CONCERNS[advisor.id];
   const raw = generator ? generator(metrics) : {
     advisor: advisor.name,
