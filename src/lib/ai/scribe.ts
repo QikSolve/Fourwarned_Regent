@@ -15,7 +15,47 @@ export async function getScribeClarification(
   report: Report,
   metrics: KingdomMetrics
 ): Promise<ScribeClarification> {
-  // Prototype: return structured deterministic guidance
+  // If an OpenAI key is configured, try to generate structured clarification via LLM.
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const system = `You are a royal scribe assistant. Given the report and metrics, return a JSON object matching the schema:\n{\n  \"summary\": string,\n  \"question\": string,\n  \"options\": [{ id: string, label: string, tradeoff: string }],\n  \"conflicts\": [string]?\n}`;
+
+      const user = `Report: ${report.title}\nScribe note: ${report.scribesNote}\nChoices: ${JSON.stringify(report.choices)}\nMetrics: ${JSON.stringify(metrics)}`;
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.0,
+          max_tokens: 600,
+        }),
+      });
+
+      if (res.ok) {
+        const payload = await res.json();
+        const text = payload.choices?.[0]?.message?.content ?? '';
+        try {
+          const parsed = JSON.parse(text);
+          const validated = ScribeClarificationSchema.safeParse(parsed);
+          if (validated.success) return validated.data;
+        } catch {
+          // fall through to deterministic
+        }
+      }
+    } catch {
+      // fall back to deterministic behavior
+    }
+  }
+
+  // Prototype deterministic fallback
   const result: ScribeClarification = {
     summary: report.scribesNote,
     question: 'How should the kingdom respond to this matter?',
@@ -77,6 +117,45 @@ export async function getScribeConsequenceSummary(
     consequences,
     warnings,
   };
+  // If an OpenAI key is present, offer a chance to produce a richer narrative
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const system = `You are a royal scribe. Produce a JSON object matching the schema:\n{\n  \"summary\": string,\n  \"consequences\": [{ aspect: string, direction: \"improved\"|\"worsened\"|\"unchanged\", explanation: string }],\n  \"warnings\": [string]?\n}`;
+
+      const user = `Old metrics: ${JSON.stringify(oldMetrics)}\nNew metrics: ${JSON.stringify(newMetrics)}\nSeason: ${season}, Year: ${year}`;
+
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: 0.0,
+          max_tokens: 800,
+        }),
+      });
+
+      if (res.ok) {
+        const payload = await res.json();
+        const text = payload.choices?.[0]?.message?.content ?? '';
+        try {
+          const parsed = JSON.parse(text);
+          const validated = ScribeConsequenceSchema.safeParse(parsed);
+          if (validated.success) return validated.data;
+        } catch {
+          // fall through to deterministic
+        }
+      }
+    } catch {
+      // fall back
+    }
+  }
 
   return ScribeConsequenceSchema.parse(result);
 }

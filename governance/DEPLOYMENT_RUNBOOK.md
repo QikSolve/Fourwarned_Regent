@@ -7,6 +7,7 @@ Required in production:
 - `DATABASE_URL` — managed Postgres connection string.
 - `DATABASE_SSL_MODE` — optional (`disable` to skip SSL, default SSL enabled).
 - `DATABASE_SSL_REJECT_UNAUTHORIZED` — optional (`false` only when required by provider docs).
+ - `OPENAI_API_KEY` — optional; if present the app will call the OpenAI API for Scribe/Advisor text generation. If not set, the prototype will use deterministic, local generators.
 
 ## Promote Procedure
 
