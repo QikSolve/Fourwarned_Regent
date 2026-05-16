@@ -79,8 +79,7 @@ export function MultiAdvisorWorkspace() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="w-full text-xs py-1 px-2 rounded border font-medium mt-2"
-        style={{ backgroundColor: '#1a4a6e', color: '#f4e4c1', borderColor: '#153a56' }}
+        className="wax-button wax-button--muted w-full text-xs py-2 px-2 mt-2"
       >
         Start Council Debate
       </button>
@@ -92,20 +91,20 @@ export function MultiAdvisorWorkspace() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="rounded-lg border-2 flex flex-col mx-4"
-            style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914', color: '#2c1810', width: '720px', maxWidth: '100%', height: '82vh' }}
+            className="ledger-panel ledger-panel--light flex flex-col mx-4"
+            style={{ width: '720px', maxWidth: '100%', height: '82vh' }}
             onClick={event => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b-2" style={{ borderColor: '#8b6914', backgroundColor: '#ede0c4' }}>
-              <h2 className="text-sm font-bold">Council Debate Workspace</h2>
-              <button onClick={() => setOpen(false)} className="text-sm px-2 py-1 rounded" style={{ backgroundColor: '#8b2635', color: '#f4e4c1' }}>✕</button>
+            <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--outline-variant)', backgroundColor: 'var(--surface-container)' }}>
+              <h2 className="text-sm font-bold ledger-title">Council Debate Workspace</h2>
+              <button onClick={() => setOpen(false)} className="wax-button wax-button--muted text-sm px-3 py-1">✕</button>
             </div>
 
-            <div className="px-4 py-2 border-b" style={{ borderColor: '#c4a882' }}>
-              <p className="text-xs mb-1" style={{ color: '#6b5744' }}>Participants:</p>
+            <div className="px-4 py-2 border-b" style={{ borderColor: 'var(--outline-variant)' }}>
+              <p className="text-xs mb-1 ledger-subtitle">Participants:</p>
               <div className="flex flex-wrap gap-2">
                 {advisors.map(advisor => (
-                  <label key={advisor.id} className="text-xs flex items-center gap-1">
+                  <label key={advisor.id} className="text-xs flex items-center gap-1 text-[var(--on-surface)]">
                     <input
                       type="checkbox"
                       checked={selectedSet.has(advisor.id)}
@@ -121,8 +120,12 @@ export function MultiAdvisorWorkspace() {
               {messages.map(msg => (
                 <div key={msg.id} className={`text-xs ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                   <div
-                    className="inline-block px-2 py-1 rounded"
-                    style={{ backgroundColor: msg.role === 'user' ? '#8b2635' : '#ede0c4', color: msg.role === 'user' ? '#f4e4c1' : '#2c1810', border: msg.role === 'advisor' ? '1px solid #c4a882' : 'none' }}
+                    className="inline-block px-2 py-1 rounded border"
+                    style={{
+                      backgroundColor: msg.role === 'user' ? 'var(--secondary-container)' : 'var(--surface-container-lowest)',
+                      color: msg.role === 'user' ? 'var(--on-secondary-container)' : 'var(--on-surface)',
+                      borderColor: 'var(--outline-variant)',
+                    }}
                   >
                     {msg.role === 'advisor' && msg.advisorId ? `${advisors.find(a => a.id === msg.advisorId)?.name ?? 'Advisor'}: ` : ''}
                     {msg.text}
@@ -130,8 +133,12 @@ export function MultiAdvisorWorkspace() {
                       <span
                         className="ml-1 px-1 rounded"
                         style={{
-                          color: msg.source === 'ai' ? '#065f46' : msg.source === 'moderated' ? '#7c2d12' : '#92400e',
-                          backgroundColor: msg.source === 'ai' ? '#d1fae5' : msg.source === 'moderated' ? '#ffedd5' : '#fef3c7',
+                          color: msg.source === 'ai' ? 'var(--tertiary)' : msg.source === 'moderated' ? 'var(--secondary)' : 'var(--primary)',
+                          backgroundColor: msg.source === 'ai'
+                            ? 'rgba(177, 218, 154, 0.12)'
+                            : msg.source === 'moderated'
+                              ? 'rgba(255, 180, 171, 0.12)'
+                              : 'rgba(242, 202, 80, 0.12)',
                           fontSize: '10px',
                         }}
                       >
@@ -141,29 +148,26 @@ export function MultiAdvisorWorkspace() {
                   </div>
                 </div>
               ))}
-              {loading && <p className="text-xs" style={{ color: '#6b5744' }}>Advisors are composing replies…</p>}
+              {loading && <p className="text-xs ledger-subtitle">Advisors are composing replies…</p>}
             </div>
 
-            <div className="px-4 py-2 border-t flex items-center gap-2" style={{ borderColor: '#c4a882' }}>
+            <div className="px-4 py-2 border-t flex items-center gap-2" style={{ borderColor: 'var(--outline-variant)' }}>
               <input
                 value={input}
                 onChange={event => setInput(event.target.value)}
                 placeholder="Ask the council a strategic question…"
-                className="flex-1 text-xs rounded border px-2 py-1.5"
-                style={{ backgroundColor: '#fff9f0', borderColor: '#c4a882', color: '#2c1810' }}
+                className="quill-input flex-1 text-xs rounded border px-2 py-1.5"
               />
               <button
                 onClick={send}
                 disabled={loading || !input.trim() || selected.length === 0}
-                className="text-xs px-3 py-1.5 rounded"
-                style={{ backgroundColor: '#8b2635', color: '#f4e4c1' }}
+                className="wax-button wax-button--primary text-xs px-3 py-1.5"
               >
                 Send
               </button>
               <button
                 onClick={exportTranscript}
-                className="text-xs px-3 py-1.5 rounded"
-                style={{ backgroundColor: '#ede0c4', color: '#6b5744', border: '1px solid #c4a882' }}
+                className="wax-button wax-button--muted text-xs px-3 py-1.5"
               >
                 Export
               </button>

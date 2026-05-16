@@ -17,10 +17,10 @@ const urgencyLabel: Record<string, string> = {
 };
 
 const urgencyStyles: Record<string, { bg: string; text: string; border: string }> = {
-  low: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' },
-  medium: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
-  high: { bg: '#fed7aa', text: '#9a3412', border: '#fb923c' },
-  critical: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
+  low: { bg: 'rgba(177, 218, 154, 0.12)', text: 'var(--tertiary)', border: 'rgba(177, 218, 154, 0.35)' },
+  medium: { bg: 'rgba(242, 202, 80, 0.12)', text: 'var(--primary)', border: 'rgba(242, 202, 80, 0.35)' },
+  high: { bg: 'rgba(255, 180, 171, 0.12)', text: 'var(--secondary)', border: 'rgba(255, 180, 171, 0.35)' },
+  critical: { bg: 'rgba(255, 180, 171, 0.16)', text: 'var(--error)', border: 'rgba(255, 180, 171, 0.45)' },
 };
 
 export function ActiveReport() {
@@ -33,7 +33,7 @@ export function ActiveReport() {
 
   if (!report) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ color: '#6b5744' }}>
+      <div className="flex items-center justify-center h-full ledger-subtitle">
         <div className="text-center">
           <div className="text-4xl mb-3">📜</div>
           <div className="text-sm font-medium">Select a report from the list</div>
@@ -46,15 +46,14 @@ export function ActiveReport() {
   const urgStyle = urgencyStyles[report.urgency];
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto scrollbar-parchment" style={{ color: '#2c1810' }}>
-      {/* Header */}
-      <div className="rounded-t border-2 border-b-0 p-4" style={{ backgroundColor: '#e8d4a0', borderColor: '#8b6914' }}>
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-parchment text-[var(--on-surface)]">
+      <div className="rounded-t border border-b-0 p-4" style={{ backgroundColor: 'var(--surface-container-highest)', borderColor: 'var(--outline-variant)' }}>
         <div className="flex justify-between items-start">
           <div>
-            <div className="font-bold text-base" style={{ color: '#8b2635' }}>
+            <div className="font-bold text-base ledger-title">
               {advisorNames[report.advisorId]}
             </div>
-            <div className="text-xs" style={{ color: '#6b5744' }}>
+            <div className="text-xs ledger-subtitle">
               {report.season}, Year {report.year}
             </div>
           </div>
@@ -65,25 +64,22 @@ export function ActiveReport() {
             {urgencyLabel[report.urgency]}
           </span>
         </div>
-        <h3 className="text-sm font-bold mt-2" style={{ color: '#2c1810' }}>{report.title}</h3>
+        <h3 className="text-sm font-bold mt-2 text-[var(--on-surface)]">{report.title}</h3>
       </div>
 
-      {/* Body */}
-      <div className="border-2 border-t-0 p-4" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
-        <p className="text-sm leading-relaxed italic" style={{ color: '#2c1810' }}>
+      <div className="border border-t-0 p-4" style={{ backgroundColor: 'var(--surface-container-low)', borderColor: 'var(--outline-variant)' }}>
+        <p className="text-sm leading-relaxed italic text-[var(--on-surface)]">
           &ldquo;{report.body}&rdquo;
         </p>
       </div>
 
-      {/* Scribe's Note */}
-      <div className="border-2 border-t-0 p-3" style={{ backgroundColor: '#ede0c4', borderColor: '#8b6914' }}>
-        <div className="text-xs font-bold mb-1" style={{ color: '#8b2635' }}>📝 The Scribe&apos;s Note:</div>
-        <p className="text-xs italic" style={{ color: '#4a3028' }}>{report.scribesNote}</p>
+      <div className="border border-t-0 p-3" style={{ backgroundColor: 'var(--surface-container)', borderColor: 'var(--outline-variant)' }}>
+        <div className="text-xs font-bold mb-1 ledger-title">📝 The Scribe&apos;s Note:</div>
+        <p className="text-xs italic ledger-subtitle">{report.scribesNote}</p>
       </div>
 
-      {/* Choices */}
-      <div className="border-2 border-t-0 p-4" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
-        <div className="text-xs font-bold mb-3" style={{ color: '#8b2635' }}>
+      <div className="border border-t-0 p-4" style={{ backgroundColor: 'var(--surface-container-low)', borderColor: 'var(--outline-variant)' }}>
+        <div className="text-xs font-bold mb-3 ledger-title">
           🔎 The Scribe Presents Your Options:
         </div>
         <div className="space-y-2">
@@ -93,17 +89,18 @@ export function ActiveReport() {
               <button
                 key={choice.id}
                 onClick={() => chooseReportOption(report.id, choice.id)}
-                className="w-full text-left rounded border-2 p-3 transition-all duration-200"
+                className="w-full text-left rounded border p-3 transition-all duration-200"
                 style={{
-                  backgroundColor: isSelected ? '#c9a227' : '#ede0c4',
-                  borderColor: isSelected ? '#8b6914' : '#c4a882',
-                  color: '#2c1810',
+                  backgroundColor: isSelected ? 'var(--surface-container-highest)' : 'var(--surface-container-lowest)',
+                  borderColor: isSelected ? 'var(--primary)' : 'var(--outline-variant)',
+                  color: 'var(--on-surface)',
+                  boxShadow: isSelected ? 'inset 0 0 0 1px rgba(242, 202, 80, 0.15)' : 'none',
                 }}
               >
-                <div className="text-xs font-bold mb-1" style={{ color: isSelected ? '#2c1810' : '#8b2635' }}>
+                <div className="text-xs font-bold mb-1" style={{ color: isSelected ? 'var(--primary)' : 'var(--secondary)' }}>
                   {isSelected ? '✓ ' : ''}{choice.label}
                 </div>
-                <div className="text-xs" style={{ color: '#4a3028' }}>{choice.description}</div>
+                <div className="text-xs ledger-subtitle">{choice.description}</div>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {Object.entries(choice.consequences).map(([key, val]) => {
                     if (val === 0) return null;
@@ -112,11 +109,7 @@ export function ActiveReport() {
                     return (
                       <span
                         key={key}
-                        className="text-xs px-1.5 py-0.5 rounded"
-                        style={{
-                          backgroundColor: isPos ? '#d1fae5' : '#fee2e2',
-                          color: isPos ? '#065f46' : '#991b1b',
-                        }}
+                        className={`sigil-chip ${isPos ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}
                       >
                         {label} {isPos ? '+' : ''}{val}
                       </span>
@@ -129,24 +122,22 @@ export function ActiveReport() {
         </div>
       </div>
 
-      {/* Free Text */}
-      <div className="border-2 border-t-0 p-4" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
-        <div className="text-xs font-bold mb-2" style={{ color: '#8b2635' }}>
+      <div className="border border-t-0 p-4" style={{ backgroundColor: 'var(--surface-container-low)', borderColor: 'var(--outline-variant)' }}>
+        <div className="text-xs font-bold mb-2 ledger-title">
           ✍ Additional Royal Instruction (optional):
         </div>
         <textarea
-          className="w-full text-xs p-2 rounded border resize-none"
+          className="quill-input w-full text-xs rounded border resize-none"
           rows={3}
-          style={{ backgroundColor: '#ede0c4', borderColor: '#8b6914', color: '#2c1810' }}
           placeholder="Write any additional instructions to your advisor..."
           value={report.freeTextInstruction}
-          onChange={(e) => setFreeTextInstruction(report.id, e.target.value)}
+          onChange={e => setFreeTextInstruction(report.id, e.target.value)}
         />
       </div>
 
       {report.status === 'responded' && (
-        <div className="border-2 border-t-0 p-3 rounded-b" style={{ backgroundColor: '#d1fae5', borderColor: '#6ee7b7' }}>
-          <div className="text-xs font-bold text-center" style={{ color: '#065f46' }}>
+        <div className="border border-t-0 p-3 rounded-b" style={{ backgroundColor: 'rgba(177, 218, 154, 0.12)', borderColor: 'rgba(177, 218, 154, 0.35)' }}>
+          <div className="text-xs font-bold text-center text-[var(--tertiary)]">
             ✓ Response recorded. Advance the season when ready.
           </div>
         </div>

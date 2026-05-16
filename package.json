@@ -10,6 +10,8 @@
     "test": "tsx --test src/lib/**/*.test.ts"
   },
   "dependencies": {
+    "@fontsource/eb-garamond": "^5.2.7",
+    "@fontsource/literata": "^5.2.8",
     "@vercel/analytics": "^2.0.1",
     "next": "^15.5.18",
     "pg": "^8.20.0",

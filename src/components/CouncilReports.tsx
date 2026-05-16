@@ -4,10 +4,10 @@ import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
 
 const urgencyStyles = {
-  low: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', label: 'Low' },
-  medium: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d', label: 'Medium' },
-  high: { bg: '#fed7aa', text: '#9a3412', border: '#fb923c', label: 'High' },
-  critical: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', label: 'CRITICAL' },
+  low: { bg: 'rgba(177, 218, 154, 0.12)', text: 'var(--tertiary)', border: 'rgba(177, 218, 154, 0.35)', label: 'Low' },
+  medium: { bg: 'rgba(242, 202, 80, 0.12)', text: 'var(--primary)', border: 'rgba(242, 202, 80, 0.35)', label: 'Medium' },
+  high: { bg: 'rgba(255, 180, 171, 0.12)', text: 'var(--secondary)', border: 'rgba(255, 180, 171, 0.35)', label: 'High' },
+  critical: { bg: 'rgba(255, 180, 171, 0.16)', text: 'var(--error)', border: 'rgba(255, 180, 171, 0.45)', label: 'CRITICAL' },
 };
 
 const advisorIcons: Record<string, string> = {
@@ -28,11 +28,11 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
 
   return (
     <div
-      className={`report-card rounded border-2 p-3 mb-2 cursor-pointer ${isActive ? 'ring-2' : ''}`}
+      className="report-card ledger-panel ledger-panel--light rounded p-3 mb-2 cursor-pointer"
       style={{
-        backgroundColor: isActive ? '#e8d4a0' : '#f4e4c1',
-        borderColor: isActive ? '#8b2635' : '#8b6914',
-        outline: isActive ? '2px solid #8b2635' : 'none',
+        backgroundColor: isActive ? 'var(--surface-container-highest)' : 'var(--surface-container-low)',
+        borderColor: isActive ? 'var(--primary)' : 'var(--outline-variant)',
+        outline: isActive ? '1px solid rgba(242, 202, 80, 0.35)' : 'none',
       }}
       onClick={onClick}
     >
@@ -40,13 +40,13 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
         <div className="flex items-center gap-2">
           <span className="text-base">{advisorIcons[report.advisorId]}</span>
           <div>
-            <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>
+            <div className="text-xs font-bold capitalize text-[var(--primary)]">
               {report.advisorId === 'steward' ? 'Steward Aldric'
                 : report.advisorId === 'marshal' ? 'Marshal Garrett'
                 : report.advisorId === 'merchant' ? 'Merchant Lyra'
                 : 'Governor Elric'}
             </div>
-            <div className="text-xs" style={{ color: '#6b5744' }}>{report.season}, Year {report.year}</div>
+            <div className="text-xs ledger-subtitle">{report.season}, Year {report.year}</div>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -57,13 +57,13 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
             {urgStyle.label}
           </span>
           {report.status === 'responded' && (
-            <span className="text-xs px-2 py-0.5 rounded-full border" style={{ backgroundColor: '#d1fae5', color: '#065f46', borderColor: '#6ee7b7' }}>
+            <span className="sigil-chip sigil-chip--positive">
               ✓ Responded
             </span>
           )}
         </div>
       </div>
-      <div className="text-xs font-medium" style={{ color: '#2c1810' }}>{report.title}</div>
+      <div className="text-xs font-medium text-[var(--on-surface)]">{report.title}</div>
     </div>
   );
 }
@@ -82,17 +82,17 @@ export function CouncilReports() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center mb-3">
-        <h2 className="text-sm font-bold" style={{ color: '#c9a227' }}>
+        <h2 className="text-sm font-bold ledger-title">
           📋 Seasonal Reports
         </h2>
-        <span className="text-xs" style={{ color: '#f4e4c1' }}>
+        <span className="text-xs ledger-subtitle">
           {respondedCount}/{totalCount} addressed
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-parchment">
         {reports.length === 0 ? (
-          <div className="text-center py-8" style={{ color: '#6b5744' }}>
+          <div className="text-center py-8 ledger-subtitle">
             <div className="text-2xl mb-2">📜</div>
             <div className="text-sm">No reports this season.</div>
           </div>
@@ -108,22 +108,16 @@ export function CouncilReports() {
         )}
       </div>
 
-      <div className="mt-3 pt-3 border-t" style={{ borderColor: '#8b6914' }}>
+      <div className="mt-3 pt-3 border-t ledger-divider">
         <button
           disabled={!canAdvance}
           onClick={advanceTurn}
-          className="w-full py-2 px-4 rounded border-2 font-bold text-sm transition-all duration-200"
-          style={{
-            backgroundColor: canAdvance ? '#8b2635' : '#4a3028',
-            color: canAdvance ? '#f4e4c1' : '#6b5744',
-            borderColor: canAdvance ? '#6b1d28' : '#3a2018',
-            cursor: canAdvance ? 'pointer' : 'not-allowed',
-          }}
+          className={`wax-button w-full py-2 px-4 text-sm font-bold ${canAdvance ? '' : 'wax-button--muted'}`}
         >
           {isAdvancingTurn ? '⏳ Advancing...' : canAdvance ? '⏭ Advance Season' : '⚠ Respond to Reports First'}
         </button>
         {!canAdvance && !isAdvancingTurn && (
-          <p className="text-xs text-center mt-1" style={{ color: '#6b5744' }}>
+          <p className="text-xs text-center mt-1 ledger-subtitle">
             Address at least one report before advancing
           </p>
         )}

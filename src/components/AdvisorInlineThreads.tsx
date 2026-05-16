@@ -19,33 +19,36 @@ export function AdvisorInlineThreads() {
   }, [advisors, conversations]);
 
   return (
-    <div className="rounded-lg border-2 p-3 mt-3" style={{ backgroundColor: 'rgba(44,24,16,0.5)', borderColor: '#8b6914' }}>
-      <h3 className="text-xs font-bold mb-2" style={{ color: '#c9a227' }}>🧵 Advisor Threads</h3>
+    <div className="ledger-panel ledger-panel--light p-3 mt-3">
+      <h3 className="text-xs font-bold mb-2 ledger-title">🧵 Advisor Threads</h3>
       {activeThreads.length === 0 ? (
-        <p className="text-xs" style={{ color: '#8b6914' }}>No active threads yet.</p>
+        <p className="text-xs ledger-subtitle">No active threads yet.</p>
       ) : (
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {activeThreads.map(({ advisor, conversation }) => (
-            <div key={advisor.id} className="rounded border p-2" style={{ borderColor: '#8b6914', backgroundColor: '#f4e4c1' }}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold" style={{ color: '#2c1810' }}>{advisor.title} {advisor.name}</span>
+            <div key={advisor.id} className="rounded border p-2" style={{ borderColor: 'var(--outline-variant)', backgroundColor: 'var(--surface-container-lowest)' }}>
+              <div className="flex items-center justify-between mb-1 gap-2">
+                <span className="text-xs font-semibold text-[var(--on-surface)]">{advisor.title} {advisor.name}</span>
                 <button
                   onClick={() => openChatModal(advisor.id)}
-                  className="text-xs px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: '#ede0c4', color: '#6b5744', border: '1px solid #c4a882' }}
+                  className="wax-button wax-button--muted text-xs px-2 py-0.5"
                 >
                   Open
                 </button>
               </div>
               {conversation?.messages.slice(-2).map(msg => (
-                <div key={msg.id} className="text-xs mb-1 last:mb-0" style={{ color: '#2c1810' }}>
+                <div key={msg.id} className="text-xs mb-1 last:mb-0 text-[var(--on-surface)]">
                   <span className="font-semibold">{msg.role === 'user' ? 'You' : advisor.name}:</span> {msg.text}
                   {msg.role === 'advisor' && msg.source && (
                     <span
                       className="ml-1 px-1 rounded"
                       style={{
-                        color: msg.source === 'ai' ? '#065f46' : msg.source === 'moderated' ? '#7c2d12' : '#92400e',
-                        backgroundColor: msg.source === 'ai' ? '#d1fae5' : msg.source === 'moderated' ? '#ffedd5' : '#fef3c7',
+                        color: msg.source === 'ai' ? 'var(--tertiary)' : msg.source === 'moderated' ? 'var(--secondary)' : 'var(--primary)',
+                        backgroundColor: msg.source === 'ai'
+                          ? 'rgba(177, 218, 154, 0.12)'
+                          : msg.source === 'moderated'
+                            ? 'rgba(255, 180, 171, 0.12)'
+                            : 'rgba(242, 202, 80, 0.12)',
                         fontSize: '10px',
                       }}
                     >

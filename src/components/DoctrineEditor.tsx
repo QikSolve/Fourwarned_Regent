@@ -7,15 +7,15 @@ export function DoctrineEditor() {
   const updateDoctrine = useGameStore(s => s.updateDoctrine);
 
   return (
-    <div className="rounded-lg border-2 p-4" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
-      <h2 className="text-sm font-bold mb-3 text-center" style={{ color: '#8b2635' }}>
+    <section className="ledger-panel p-4">
+      <h2 className="text-sm font-bold mb-3 text-center ledger-title">
         ⚜ Kingdom Doctrine
       </h2>
 
       <div className="space-y-4">
         {doctrines.map(doctrine => (
           <div key={doctrine.id}>
-            <div className="text-xs font-bold mb-2" style={{ color: '#2c1810' }}>
+            <div className="text-xs font-bold mb-2 ledger-subtitle">
               {doctrine.name}
             </div>
             <div className="space-y-1">
@@ -27,20 +27,21 @@ export function DoctrineEditor() {
                     onClick={() => updateDoctrine(doctrine.id, option.id)}
                     className="w-full text-left rounded border p-2 transition-all duration-200"
                     style={{
-                      backgroundColor: isSelected ? '#c9a227' : '#ede0c4',
-                      borderColor: isSelected ? '#8b6914' : '#c4a882',
+                      backgroundColor: isSelected ? 'var(--surface-container-highest)' : 'var(--surface-container-lowest)',
+                      borderColor: isSelected ? 'var(--primary)' : 'var(--outline-variant)',
+                      boxShadow: isSelected ? 'inset 0 0 0 1px rgba(242, 202, 80, 0.12)' : 'none',
                     }}
                   >
                     <div className="flex items-center gap-2">
                       <div
                         className="w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                        style={{ borderColor: isSelected ? '#2c1810' : '#8b6914' }}
+                        style={{ borderColor: isSelected ? 'var(--primary)' : 'var(--outline)' }}
                       >
-                        {isSelected && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: '#2c1810' }} />}
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--primary)' }} />}
                       </div>
                       <div>
-                        <div className="text-xs font-medium" style={{ color: '#2c1810' }}>{option.label}</div>
-                        <div className="text-xs" style={{ color: '#4a3028' }}>{option.description}</div>
+                        <div className="text-xs font-medium text-[var(--on-surface)]">{option.label}</div>
+                        <div className="text-xs ledger-subtitle">{option.description}</div>
                       </div>
                     </div>
                   </button>
@@ -50,6 +51,6 @@ export function DoctrineEditor() {
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
