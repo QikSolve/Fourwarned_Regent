@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Four Warned: Regent
 
-## Getting Started
+## Governance Documentation Gap Assessment (2026-05-16)
 
-First, run the development server:
+This repository contains both implementation and governance design docs:
+
+- `PRD.md`
+- `GDD.md`
+- `ARCHITECTURE.md`
+
+The assessment below compares current implementation (`src/**`) against those governance docs and identifies gaps/required changes.
+
+### Assessment Summary
+
+| Area | Governance Docs Expectation | Current Implementation | Status | Changes Required |
+| --- | --- | --- | --- | --- |
+| Core loop (reports → scribe → player choice → simulation) | Defined in PRD/GDD and architecture turn flow | Implemented in store, reports, simulation, and UI panels | ✅ Implemented | None for MVP scope |
+| Advisor model | Four core advisors with traits and stress/loyalty dynamics | Implemented with Steward, Marshal, Merchant, Governor and full trait set | ✅ Implemented | None for MVP scope |
+| Operational procedures | Assignable governance procedures with advisor capacity limits | Implemented with assign/unassign flow and per-advisor max procedure capacity | ✅ Implemented | None for MVP scope |
+| Doctrine system | Kingdom-wide doctrine influencing outcomes | Implemented with doctrine categories and deterministic effects | ✅ Implemented | None for MVP scope |
+| Scribe responsibilities | Clarification + conflict/consequence framing | Implemented with welcome/conflict/consequence messaging and report framing | ✅ Implemented | None for MVP scope |
+| Deterministic simulation ownership | Simulation, not AI, owns game-state changes | Implemented deterministic `resolveTurn`/simulation path | ✅ Implemented | None for MVP scope |
+| Persistence layer | Architecture doc expects campaign persistence (Postgres) | In-memory Zustand state only (prototype session state) | ⚠️ Partial | Add campaign persistence + hydration path |
+| AI orchestration layer | Architecture expects structured AI endpoints and schema validation | Stub endpoints exist, but gameplay currently runs with deterministic local generation | ⚠️ Partial | Wire endpoints into runtime orchestration and validated payload flow |
+| Folder alignment | Architecture sample still references top-level `/app`, `/lib`, `/types` | Project is under `src/` (`src/app`, `src/lib`, `src/types`) | ⚠️ Drift | Update architecture doc folder examples to match `src/` layout |
+
+### Recommended Next Changes (Prioritized)
+
+1. **Doc sync update**: revise `ARCHITECTURE.md` prototype folder paths to `src/` to match deployed codebase structure.
+2. **Persistence implementation**: introduce campaign save/load for turn state.
+3. **AI integration hardening**: connect route handlers to active gameplay flow with schema-validated request/response contracts.
+
+## Local Development
 
 ```bash
+npm ci
+npm run lint
+npm run build
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
