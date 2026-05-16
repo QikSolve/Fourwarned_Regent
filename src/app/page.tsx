@@ -2,9 +2,9 @@
 
 import { useEffect } from 'react';
 import { useGameStore } from '@/lib/gameStore';
-import { KingdomStatus } from '@/components/KingdomStatus';
+import { KingdomOverview } from '@/components/KingdomOverview';
 import { AdvisorPanel } from '@/components/AdvisorPanel';
-import { ReportsFeed } from '@/components/ReportsFeed';
+import { CouncilReports } from '@/components/CouncilReports';
 import { ActiveReport } from '@/components/ActiveReport';
 import { ScribePanel } from '@/components/ScribePanel';
 import { DoctrineEditor } from '@/components/DoctrineEditor';
@@ -36,26 +36,26 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 60px)' }}>
-        {/* Left Sidebar */}
+        {/* Left Sidebar — KingdomOverview + AdvisorCard (per ARCHITECTURE.md) */}
         <aside className="w-72 flex-shrink-0 overflow-y-auto p-4 border-r-2" style={{ borderColor: '#8b6914' }}>
-          <KingdomStatus />
+          <KingdomOverview />
           <AdvisorPanel />
         </aside>
 
-        {/* Center: Reports Feed + Active Report */}
+        {/* Center — CouncilReports + ActiveReport (per ARCHITECTURE.md) */}
         <main className="flex-1 flex overflow-hidden">
-          {/* Reports List */}
+          {/* Council Reports list */}
           <div className="w-72 flex-shrink-0 border-r-2 p-4 overflow-hidden flex flex-col" style={{ borderColor: '#8b6914' }}>
-            <ReportsFeed />
+            <CouncilReports />
           </div>
 
-          {/* Active Report */}
+          {/* Active Report interaction */}
           <div className="flex-1 p-4 overflow-hidden">
             <ActiveReport />
           </div>
         </main>
 
-        {/* Right Sidebar */}
+        {/* Right Sidebar — ScribePanel + DoctrineEditor (per ARCHITECTURE.md) */}
         <aside className="w-80 flex-shrink-0 overflow-y-auto p-4 border-l-2" style={{ borderColor: '#8b6914' }}>
           <ScribePanel />
           <DoctrineEditor />

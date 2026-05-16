@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { GameState, Report, Procedure, DoctrineCategory, AdvisorId, Season, KingdomMetrics, Advisor, ScribeMessage } from './gameTypes';
 import { generateReports } from './reportGenerator';
-import { runSimulation } from './simulation';
+import { resolveTurn } from './simulation/resolveTurn';
 import { generateWelcomeMessage, generateConsequenceMessages, detectConflicts } from './scribeLogic';
 
 // suppress unused type imports - they're used via GameState
@@ -341,12 +341,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const respondedReports = reports.filter(r => r.status === 'responded');
     if (respondedReports.length === 0) return;
 
-    const { newMetrics, newAdvisors } = runSimulation(
+    const { newMetrics, newAdvisors } = resolveTurn(
       metrics,
       advisors,
       reports,
       procedures,
-      doctrines
+      doctrines,
+      season,
+      year
     );
 
     const nextSeason: Season = season === 'Spring' ? 'Summer'
