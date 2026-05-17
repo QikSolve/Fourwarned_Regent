@@ -17,19 +17,34 @@ beforeEach(() => {
   __resetInMemoryStoresForTests();
 });
 
+async function getStatusFromApi(jobId: string): Promise<{ status: string; errorMessage: string | null }> {
+  const statusResponse = await getJobStatusRoute(
+    new Request(`http://localhost/api/jobs/${jobId}`),
+    { params: Promise.resolve({ jobId }) }
+  );
+  assert.equal(statusResponse.status, 200);
+  return statusResponse.json();
+}
+
 test('job lifecycle supports queue -> claim -> running -> completed with audit events', async () => {
   const { job } = await enqueueJob({
     jobType: 'advisor-conversation',
     payload: { advisorId: 'steward' },
   });
 
+  assert.equal((await getStatusFromApi(job.id)).status, 'queued');
   const claimed = await transitionJobState(job.id, 'claimed');
+  assert.equal((await getStatusFromApi(job.id)).status, 'claimed');
   const running = await transitionJobState(job.id, 'running');
+  assert.equal((await getStatusFromApi(job.id)).status, 'running');
   const completed = await transitionJobState(job.id, 'completed', { result: { transcriptId: 't-1' } });
+  const completedStatus = await getStatusFromApi(job.id);
 
   assert.equal(claimed?.status, 'claimed');
   assert.equal(running?.status, 'running');
   assert.equal(completed?.status, 'completed');
+  assert.equal(completedStatus.status, 'completed');
+  assert.equal(completedStatus.errorMessage, null);
   assert.deepEqual((completed?.result as Record<string, unknown>)?.transcriptId, 't-1');
 
   const events = await getJobEvents(job.id);
@@ -46,14 +61,20 @@ test('job lifecycle supports failure and retry transitions', async () => {
   await transitionJobState(job.id, 'claimed');
   await transitionJobState(job.id, 'running');
   const failed = await transitionJobState(job.id, 'failed', { errorMessage: 'model timeout' });
+  const failedStatus = await getStatusFromApi(job.id);
   const retrying = await transitionJobState(job.id, 'retrying', { incrementAttempt: true });
+  assert.equal((await getStatusFromApi(job.id)).status, 'retrying');
   const queuedAgain = await transitionJobState(job.id, 'queued');
+  const queuedStatus = await getStatusFromApi(job.id);
 
   assert.equal(failed?.status, 'failed');
   assert.equal(failed?.error_message, 'model timeout');
+  assert.equal(failedStatus.status, 'failed');
+  assert.equal(failedStatus.errorMessage, 'model timeout');
   assert.equal(retrying?.status, 'retrying');
   assert.equal(retrying?.attempt, 1);
   assert.equal(queuedAgain?.status, 'queued');
+  assert.equal(queuedStatus.status, 'queued');
 });
 
 test('invalid transition is rejected', async () => {
@@ -63,6 +84,7 @@ test('invalid transition is rejected', async () => {
   });
 
   await assert.rejects(() => transitionJobState(job.id, 'completed'), InvalidJobTransitionError);
+  assert.equal((await getStatusFromApi(job.id)).status, 'queued');
 });
 
 test('enqueue and status routes validate payload and return normalized response', async () => {
