@@ -21,7 +21,10 @@ export async function POST(
   try {
     const parsedParams = ParamsSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid job ID', details: parsedParams.error.flatten() },
+        { status: 400 }
+      );
     }
 
     const { job, cancelled } = await cancelJob(parsedParams.data.jobId);

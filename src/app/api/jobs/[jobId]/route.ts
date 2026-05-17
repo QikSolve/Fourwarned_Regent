@@ -21,7 +21,10 @@ export async function GET(
   try {
     const parsedParams = ParamsSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json({ error: parsedParams.error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Invalid job ID', details: parsedParams.error.flatten() },
+        { status: 400 }
+      );
     }
 
     const job = await getJob(parsedParams.data.jobId);

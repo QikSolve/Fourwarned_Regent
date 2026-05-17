@@ -1,5 +1,6 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { POST as enqueueJobRoute } from '@/app/api/jobs/route';
 import { GET as getJobStatusRoute } from '@/app/api/jobs/[jobId]/route';
 import { POST as cancelJobRoute } from '@/app/api/jobs/[jobId]/cancel/route';
@@ -115,6 +116,23 @@ test('enqueue and status routes validate payload and return normalized response'
   const statusPayload = await statusResponse.json();
   assert.equal(statusPayload.id, created.id);
   assert.equal(statusPayload.status, 'queued');
+
+  const invalidIdResponse = await getJobStatusRoute(
+    new Request('http://localhost/api/jobs/not-a-uuid'),
+    { params: Promise.resolve({ jobId: 'not-a-uuid' }) }
+  );
+  assert.equal(invalidIdResponse.status, 400);
+  const invalidIdPayload = await invalidIdResponse.json();
+  assert.equal(invalidIdPayload.error, 'Invalid job ID');
+
+  const missingJobId = randomUUID();
+  const missingResponse = await getJobStatusRoute(
+    new Request(`http://localhost/api/jobs/${missingJobId}`),
+    { params: Promise.resolve({ jobId: missingJobId }) }
+  );
+  assert.equal(missingResponse.status, 404);
+  const missingPayload = await missingResponse.json();
+  assert.equal(missingPayload.error, 'Job not found');
 });
 
 test('enqueue returns 409 when idempotency key is reused with different parameters', async () => {
@@ -158,6 +176,8 @@ test('cancel route cancels active job and rejects invalid IDs/non-cancellable st
     { params: Promise.resolve({ jobId: 'not-a-uuid' }) }
   );
   assert.equal(invalidIdResponse.status, 400);
+  const invalidIdPayload = await invalidIdResponse.json();
+  assert.equal(invalidIdPayload.error, 'Invalid job ID');
 
   const cancelledResponse = await cancelJobRoute(
     new Request(`http://localhost/api/jobs/${job.id}/cancel`, { method: 'POST' }),
@@ -180,5 +200,13 @@ test('cancel route cancels active job and rejects invalid IDs/non-cancellable st
     { params: Promise.resolve({ jobId: completedJob.id }) }
   );
   assert.equal(nonCancellableResponse.status, 409);
-});
 
+  const missingJobId = randomUUID();
+  const missingResponse = await cancelJobRoute(
+    new Request(`http://localhost/api/jobs/${missingJobId}/cancel`, { method: 'POST' }),
+    { params: Promise.resolve({ jobId: missingJobId }) }
+  );
+  assert.equal(missingResponse.status, 404);
+  const missingPayload = await missingResponse.json();
+  assert.equal(missingPayload.error, 'Job not found');
+});
