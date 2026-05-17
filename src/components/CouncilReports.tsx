@@ -2,6 +2,8 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
+import { MetricDeltaChips } from '@/components/MetricDeltaChips';
+import { ADVISOR_ICONS, ADVISOR_NAMES } from '@/lib/reports/display';
 import { getProjectedDeltaForReport, getProjectedDeltaForRespondedReports } from '@/lib/reports/projections';
 
 const urgencyStyles = {
@@ -9,13 +11,6 @@ const urgencyStyles = {
   medium: { bg: 'rgba(242, 202, 80, 0.12)', text: 'var(--primary)', border: 'rgba(242, 202, 80, 0.35)', label: 'Medium' },
   high: { bg: 'rgba(255, 180, 171, 0.12)', text: 'var(--secondary)', border: 'rgba(255, 180, 171, 0.35)', label: 'High' },
   critical: { bg: 'rgba(255, 180, 171, 0.16)', text: 'var(--error)', border: 'rgba(255, 180, 171, 0.45)', label: 'CRITICAL' },
-};
-
-const advisorIcons: Record<string, string> = {
-  steward: '⚖️',
-  marshal: '⚔️',
-  merchant: '💼',
-  governor: '📜',
 };
 
 interface ReportItemProps {
@@ -39,13 +34,10 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
     >
       <div className="flex justify-between items-start mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-base">{advisorIcons[report.advisorId]}</span>
+          <span className="text-base">{ADVISOR_ICONS[report.advisorId]}</span>
           <div>
             <div className="text-xs font-bold capitalize text-[var(--primary)]">
-              {report.advisorId === 'steward' ? 'Steward Aldric'
-                : report.advisorId === 'marshal' ? 'Marshal Garrett'
-                : report.advisorId === 'merchant' ? 'Merchant Lyra'
-                : 'Governor Elric'}
+              {ADVISOR_NAMES[report.advisorId]}
             </div>
             <div className="text-xs ledger-subtitle">{report.season}, Year {report.year}</div>
           </div>
@@ -127,23 +119,10 @@ export function CouncilReports() {
                   onClick={() => selectReport(report.id)}
                 >
                   <div className="text-xs font-bold text-[var(--primary)] capitalize">
-                    {report.advisorId === 'steward' ? 'Steward Aldric'
-                      : report.advisorId === 'marshal' ? 'Marshal Garrett'
-                      : report.advisorId === 'merchant' ? 'Merchant Lyra'
-                      : 'Governor Elric'}
+                    {ADVISOR_NAMES[report.advisorId]}
                   </div>
                   <div className="text-xs text-[var(--on-surface)] mt-1">{selectedChoice?.label ?? 'No response selected'}</div>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {Object.entries(projectedDelta).map(([key, value]) => {
-                      if (value === 0) return null;
-                      const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
-                      return (
-                        <span key={key} className={`sigil-chip ${value > 0 ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
-                          {icon} {value > 0 ? '+' : ''}{value}
-                        </span>
-                      );
-                    })}
-                  </div>
+                  <MetricDeltaChips delta={projectedDelta} containerClassName="flex flex-wrap gap-1 mt-2" />
                 </div>
               );
             })}
@@ -164,17 +143,7 @@ export function CouncilReports() {
         {canAdvance && (
           <div className="mb-2 rounded border p-2" style={{ backgroundColor: 'var(--surface-container-low)', borderColor: 'var(--outline-variant)' }}>
             <p className="text-[11px] mb-1 text-center ledger-subtitle">Pending season net</p>
-            <div className="flex flex-wrap justify-center gap-1">
-              {Object.entries(projectedTotalDelta).map(([key, value]) => {
-                if (value === 0) return null;
-                const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
-                return (
-                  <span key={key} className={`sigil-chip ${value > 0 ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
-                    {icon} {value > 0 ? '+' : ''}{value}
-                  </span>
-                );
-              })}
-            </div>
+            <MetricDeltaChips delta={projectedTotalDelta} containerClassName="flex flex-wrap justify-center gap-1" />
           </div>
         )}
         <button

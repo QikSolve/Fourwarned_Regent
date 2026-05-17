@@ -2,13 +2,8 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { getProjectedDeltaForReport } from '@/lib/reports/projections';
-
-const advisorNames: Record<string, string> = {
-  steward: 'Steward Aldric',
-  marshal: 'Marshal Garrett',
-  merchant: 'Merchant Lyra',
-  governor: 'Governor Elric',
-};
+import { ADVISOR_NAMES } from '@/lib/reports/display';
+import { MetricDeltaChips } from '@/components/MetricDeltaChips';
 
 const urgencyLabel: Record<string, string> = {
   low: 'Low Priority',
@@ -64,7 +59,7 @@ export function ActiveReport() {
         <div className="flex justify-between items-start">
           <div>
             <div className="font-bold text-base ledger-title">
-              {advisorNames[report.advisorId]}
+              {ADVISOR_NAMES[report.advisorId]}
             </div>
             <div className="text-xs ledger-subtitle">
               {report.season}, Year {report.year}
@@ -158,18 +153,7 @@ export function ActiveReport() {
               <div className="text-[11px] font-bold text-center ledger-subtitle">
                 Pending outcome for &ldquo;{selectedChoice.label}&rdquo;
               </div>
-              <div className="flex flex-wrap justify-center gap-2 mt-2">
-                {Object.entries(projectedDelta).map(([key, value]) => {
-                  if (value === 0) return null;
-                  const isPositive = value > 0;
-                  const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
-                  return (
-                    <span key={key} className={`sigil-chip ${isPositive ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
-                      {icon} {isPositive ? '+' : ''}{value}
-                    </span>
-                  );
-                })}
-              </div>
+              <MetricDeltaChips delta={projectedDelta} containerClassName="flex flex-wrap justify-center gap-2 mt-2" />
               <p className="text-[11px] text-center mt-2 ledger-subtitle">
                 Pending only — changes apply when the season advances.
               </p>

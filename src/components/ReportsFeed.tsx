@@ -2,6 +2,8 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
+import { MetricDeltaChips } from '@/components/MetricDeltaChips';
+import { ADVISOR_ICONS, ADVISOR_NAMES } from '@/lib/reports/display';
 import { getProjectedDeltaForReport, getProjectedDeltaForRespondedReports } from '@/lib/reports/projections';
 
 const urgencyStyles = {
@@ -9,13 +11,6 @@ const urgencyStyles = {
   medium: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d', label: 'Medium' },
   high: { bg: '#fed7aa', text: '#9a3412', border: '#fb923c', label: 'High' },
   critical: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', label: 'CRITICAL' },
-};
-
-const advisorIcons: Record<string, string> = {
-  steward: '⚖️',
-  marshal: '⚔️',
-  merchant: '💼',
-  governor: '📜',
 };
 
 interface ReportItemProps {
@@ -39,13 +34,10 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
     >
       <div className="flex justify-between items-start mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-base">{advisorIcons[report.advisorId]}</span>
+          <span className="text-base">{ADVISOR_ICONS[report.advisorId]}</span>
           <div>
             <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>
-              {report.advisorId === 'steward' ? 'Steward Aldric'
-                : report.advisorId === 'marshal' ? 'Marshal Garrett'
-                : report.advisorId === 'merchant' ? 'Merchant Lyra'
-                : 'Governor Elric'}
+              {ADVISOR_NAMES[report.advisorId]}
             </div>
             <div className="text-xs" style={{ color: '#6b5744' }}>{report.season}, Year {report.year}</div>
           </div>
@@ -114,27 +106,9 @@ export function ReportsFeed() {
                   style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}
                   onClick={() => selectReport(report.id)}
                 >
-                  <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>{report.advisorId}</div>
+                  <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>{ADVISOR_NAMES[report.advisorId]}</div>
                   <div className="text-xs mt-1" style={{ color: '#2c1810' }}>{selectedChoice?.label ?? 'No response selected'}</div>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {Object.entries(projectedDelta).map(([key, value]) => {
-                      if (value === 0) return null;
-                      const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
-                      return (
-                        <span
-                          key={key}
-                          className="text-xs px-2 py-0.5 rounded-full border"
-                          style={{
-                            backgroundColor: value > 0 ? '#d1fae5' : '#fee2e2',
-                            color: value > 0 ? '#065f46' : '#991b1b',
-                            borderColor: value > 0 ? '#6ee7b7' : '#fca5a5',
-                          }}
-                        >
-                          {icon} {value > 0 ? '+' : ''}{value}
-                        </span>
-                      );
-                    })}
-                  </div>
+                  <MetricDeltaChips delta={projectedDelta} containerClassName="flex flex-wrap gap-1 mt-2" useLegacyStyles />
                 </div>
               );
             })}
@@ -155,25 +129,7 @@ export function ReportsFeed() {
         {canAdvance && (
           <div className="mb-2 rounded border p-2" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
             <p className="text-[11px] mb-1 text-center" style={{ color: '#6b5744' }}>Pending season net</p>
-            <div className="flex flex-wrap justify-center gap-1">
-              {Object.entries(projectedTotalDelta).map(([key, value]) => {
-                if (value === 0) return null;
-                const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
-                return (
-                  <span
-                    key={key}
-                    className="text-xs px-2 py-0.5 rounded-full border"
-                    style={{
-                      backgroundColor: value > 0 ? '#d1fae5' : '#fee2e2',
-                      color: value > 0 ? '#065f46' : '#991b1b',
-                      borderColor: value > 0 ? '#6ee7b7' : '#fca5a5',
-                    }}
-                  >
-                    {icon} {value > 0 ? '+' : ''}{value}
-                  </span>
-                );
-              })}
-            </div>
+            <MetricDeltaChips delta={projectedTotalDelta} containerClassName="flex flex-wrap justify-center gap-1" useLegacyStyles />
           </div>
         )}
         <button

@@ -2,7 +2,7 @@ import type { KingdomMetrics, Report } from '@/lib/gameTypes';
 
 type MetricKey = keyof KingdomMetrics;
 
-const METRIC_KEYS: MetricKey[] = ['food', 'morale', 'gold', 'threat', 'adminStrain'];
+export const METRIC_KEYS: MetricKey[] = ['food', 'morale', 'gold', 'threat', 'adminStrain'];
 
 export function createZeroMetricDelta(): KingdomMetrics {
   return { food: 0, morale: 0, gold: 0, threat: 0, adminStrain: 0 };
