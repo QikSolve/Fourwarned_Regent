@@ -1,13 +1,9 @@
 'use client';
 
 import { useGameStore } from '@/lib/gameStore';
-
-const advisorNames: Record<string, string> = {
-  steward: 'Steward Aldric',
-  marshal: 'Marshal Garrett',
-  merchant: 'Merchant Lyra',
-  governor: 'Governor Elric',
-};
+import { getProjectedDeltaForReport } from '@/lib/reports/projections';
+import { ADVISOR_NAMES } from '@/lib/reports/display';
+import { MetricDeltaChips } from '@/components/MetricDeltaChips';
 
 const urgencyLabel: Record<string, string> = {
   low: 'Low Priority',
@@ -44,6 +40,18 @@ export function ActiveReport() {
   }
 
   const urgStyle = urgencyStyles[report.urgency];
+  const selectedChoice = report.choices.find(choice => choice.id === report.selectedChoiceId);
+  const projectedDelta = getProjectedDeltaForReport(report);
+
+  const selectChoice = (choiceId: string) => {
+    chooseReportOption(report.id, choiceId);
+    if (typeof window === 'undefined') return;
+    if (!window.matchMedia('(max-width: 1279px)').matches) return;
+
+    window.requestAnimationFrame(() => {
+      document.getElementById('active-report-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-parchment text-[var(--on-surface)]">
@@ -51,7 +59,7 @@ export function ActiveReport() {
         <div className="flex justify-between items-start">
           <div>
             <div className="font-bold text-base ledger-title">
-              {advisorNames[report.advisorId]}
+              {ADVISOR_NAMES[report.advisorId]}
             </div>
             <div className="text-xs ledger-subtitle">
               {report.season}, Year {report.year}
@@ -88,7 +96,7 @@ export function ActiveReport() {
             return (
               <button
                 key={choice.id}
-                onClick={() => chooseReportOption(report.id, choice.id)}
+                onClick={() => selectChoice(choice.id)}
                 className="w-full text-left rounded border p-3 transition-all duration-200"
                 style={{
                   backgroundColor: isSelected ? 'var(--surface-container-highest)' : 'var(--surface-container-lowest)',
@@ -140,6 +148,17 @@ export function ActiveReport() {
           <div className="text-xs font-bold text-center text-[var(--tertiary)]">
             ✓ Response recorded. Advance the season when ready.
           </div>
+          {selectedChoice && (
+            <div className="mt-2">
+              <div className="text-[11px] font-bold text-center ledger-subtitle">
+                Pending outcome for &ldquo;{selectedChoice.label}&rdquo;
+              </div>
+              <MetricDeltaChips delta={projectedDelta} containerClassName="flex flex-wrap justify-center gap-2 mt-2" />
+              <p className="text-[11px] text-center mt-2 ledger-subtitle">
+                Pending only — changes apply when the season advances.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
