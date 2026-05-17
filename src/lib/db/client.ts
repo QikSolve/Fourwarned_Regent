@@ -254,19 +254,6 @@ async function insertJobEvent(
   };
 }
 
-async function recordJobEvent(
-  jobId: string,
-  eventType: string,
-  payload: Record<string, unknown>
-): Promise<JobEventRow> {
-  const db = getPool();
-  if (!db) {
-    return addInMemoryJobEvent(jobId, eventType, payload);
-  }
-  await ensureJobTables();
-  return insertJobEvent(db, jobId, eventType, payload);
-}
-
 async function fetchJobFromDb(db: Pool, jobId: string): Promise<JobRow | null> {
   const result = await db.query<JobRow>(
     `
