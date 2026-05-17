@@ -7,7 +7,8 @@ type CounterName =
   | 'chatThreadStarted'
   | 'chatMessageSent'
   | 'chatQuickChipSelected'
-  | 'chatModerationBlocked';
+  | 'chatModerationBlocked'
+  | 'workerJobProcessed';
 
 const counters: Record<CounterName, number> = {
   turnAdvanceSuccess: 0,
@@ -17,6 +18,7 @@ const counters: Record<CounterName, number> = {
   chatMessageSent: 0,
   chatQuickChipSelected: 0,
   chatModerationBlocked: 0,
+  workerJobProcessed: 0,
 };
 
 // AI telemetry

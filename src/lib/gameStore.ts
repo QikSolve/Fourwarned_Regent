@@ -433,6 +433,8 @@ interface GameStore extends GameState {
   isChatLoading: boolean;
   showChatModal: boolean;
   chatAdvisorId: AdvisorId | null;
+  /** Tracks the most-recently enqueued job ID per advisor for the realtime panel. */
+  advisorJobIds: Partial<Record<AdvisorId, string>>;
   initGame: () => Promise<void>;
   saveCampaignState: () => Promise<boolean>;
   loadCampaignState: () => Promise<boolean>;
@@ -449,6 +451,12 @@ interface GameStore extends GameState {
   openChatModal: (advisorId: AdvisorId) => void;
   closeChatModal: () => void;
   sendChatMessage: (advisorId: AdvisorId, text: string, options?: { isQuickFollowUp?: boolean }) => Promise<void>;
+  /** Optimistically add a user message to an advisor conversation (no API call). */
+  addChatUserMessage: (advisorId: AdvisorId, text: string) => void;
+  /** Append a completed advisor reply to an advisor conversation. */
+  applyChatAdvisorReply: (advisorId: AdvisorId, text: string, source: 'ai' | 'fallback' | 'moderated') => void;
+  /** Update the active job ID for an advisor (null = cleared). */
+  setAdvisorJobId: (advisorId: AdvisorId, jobId: string | null) => void;
   clearConversation: (advisorId: AdvisorId) => void;
   toggleConversationPersistence: (advisorId: AdvisorId) => void;
   setConversationTone: (advisorId: AdvisorId, tone: AdvisorTone) => void;
@@ -487,6 +495,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     isChatLoading: false,
     showChatModal: false,
     chatAdvisorId: null,
+    advisorJobIds: {} as Partial<Record<AdvisorId, string>>,
 
     initGame: async () => {
       const loaded = await get().loadCampaignState();
@@ -754,6 +763,54 @@ export const useGameStore = create<GameStore>((set, get) => {
         writePersistedConversations(updatedConvs);
         return { conversations: updatedConvs };
       });
+    },
+
+    addChatUserMessage: (advisorId, text) => {
+      const userMsg: ConversationMessage = {
+        id: generateId(),
+        role: 'user',
+        text,
+        timestamp: Date.now(),
+      };
+      set(s => ({
+        conversations: {
+          ...s.conversations,
+          [advisorId]: {
+            ...s.conversations[advisorId] ?? createEmptyConversation(),
+            messages: [...(s.conversations[advisorId]?.messages ?? []), userMsg],
+          },
+        },
+      }));
+    },
+
+    applyChatAdvisorReply: (advisorId, text, source) => {
+      const advisorMsg: ConversationMessage = {
+        id: generateId(),
+        role: 'advisor',
+        text,
+        timestamp: Date.now(),
+        source,
+      };
+      set(s => {
+        const updated: AdvisorConversation = {
+          ...s.conversations[advisorId] ?? createEmptyConversation(),
+          messages: [...(s.conversations[advisorId]?.messages ?? []), advisorMsg],
+        };
+        const updatedConvs = { ...s.conversations, [advisorId]: updated };
+        if (updated.isPersistent) {
+          writePersistedConversations(updatedConvs);
+        }
+        return { conversations: updatedConvs };
+      });
+    },
+
+    setAdvisorJobId: (advisorId, jobId) => {
+      set(s => ({
+        advisorJobIds: {
+          ...s.advisorJobIds,
+          [advisorId]: jobId ?? undefined,
+        },
+      }));
     },
 
     toggleConversationPersistence: (advisorId) => {
