@@ -318,3 +318,51 @@ test('claimAndExecute claims, executes, and completes a job end-to-end', async (
   const again = await claimAndExecute(executor);
   assert.equal(again, false);
 });
+
+test('claimAndExecute persists advisor transcript and thread state events', async () => {
+  const { job } = await enqueueJob({
+    jobType: 'advisor-conversation',
+    payload: { advisorId: 'steward', prompt: 'What should I do?' },
+  });
+
+  const executor: JobExecutor = async () => ({
+    advisorId: 'steward',
+    reply: 'Increase granary reserves.',
+    transcriptSnapshot: [
+      { role: 'user', text: 'What should I do?' },
+      { role: 'advisor', text: 'Increase granary reserves.' },
+    ],
+  });
+
+  const processed = await claimAndExecute(executor);
+  assert.equal(processed, true);
+
+  const events = await getJobEvents(job.id);
+  const threadState = events.find(e => e.event_type === 'advisor_thread_state');
+  assert.equal(threadState?.payload.advisorId, 'steward');
+  assert.equal(threadState?.payload.messageCount, 2);
+
+  const transcriptRecords = events.filter(e => e.event_type === 'advisor_transcript');
+  assert.equal(transcriptRecords.length, 2);
+  assert.equal(transcriptRecords[0]?.payload.role, 'user');
+  assert.equal(transcriptRecords[1]?.payload.role, 'advisor');
+});
+
+test('claimAndExecute does not duplicate claims under concurrent workers', async () => {
+  await enqueueJob({ jobType: 'advisor-conversation', payload: { advisorId: 'steward' } });
+
+  let executions = 0;
+  const executor: JobExecutor = async () => {
+    executions++;
+    await new Promise(r => setTimeout(r, 5));
+    return { ok: true };
+  };
+
+  const [a, b] = await Promise.all([
+    claimAndExecute(executor),
+    claimAndExecute(executor),
+  ]);
+
+  assert.equal(Number(a) + Number(b), 1, 'exactly one worker should process the single queued job');
+  assert.equal(executions, 1, 'executor should run only once');
+});
