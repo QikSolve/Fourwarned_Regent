@@ -1,6 +1,7 @@
 'use client';
 
 import { useGameStore } from '@/lib/gameStore';
+import { getProjectedDeltaForReport } from '@/lib/reports/projections';
 
 const advisorNames: Record<string, string> = {
   steward: 'Steward Aldric',
@@ -44,6 +45,18 @@ export function ActiveReport() {
   }
 
   const urgStyle = urgencyStyles[report.urgency];
+  const selectedChoice = report.choices.find(choice => choice.id === report.selectedChoiceId);
+  const projectedDelta = getProjectedDeltaForReport(report);
+
+  const selectChoice = (choiceId: string) => {
+    chooseReportOption(report.id, choiceId);
+    if (typeof window === 'undefined') return;
+    if (!window.matchMedia('(max-width: 1279px)').matches) return;
+
+    window.requestAnimationFrame(() => {
+      document.getElementById('active-report-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-parchment text-[var(--on-surface)]">
@@ -88,7 +101,7 @@ export function ActiveReport() {
             return (
               <button
                 key={choice.id}
-                onClick={() => chooseReportOption(report.id, choice.id)}
+                onClick={() => selectChoice(choice.id)}
                 className="w-full text-left rounded border p-3 transition-all duration-200"
                 style={{
                   backgroundColor: isSelected ? 'var(--surface-container-highest)' : 'var(--surface-container-lowest)',
@@ -140,6 +153,28 @@ export function ActiveReport() {
           <div className="text-xs font-bold text-center text-[var(--tertiary)]">
             ✓ Response recorded. Advance the season when ready.
           </div>
+          {selectedChoice && (
+            <div className="mt-2">
+              <div className="text-[11px] font-bold text-center ledger-subtitle">
+                Pending outcome for &ldquo;{selectedChoice.label}&rdquo;
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 mt-2">
+                {Object.entries(projectedDelta).map(([key, value]) => {
+                  if (value === 0) return null;
+                  const isPositive = value > 0;
+                  const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
+                  return (
+                    <span key={key} className={`sigil-chip ${isPositive ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
+                      {icon} {isPositive ? '+' : ''}{value}
+                    </span>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-center mt-2 ledger-subtitle">
+                Pending only — changes apply when the season advances.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

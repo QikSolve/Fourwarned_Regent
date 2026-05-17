@@ -2,6 +2,7 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
+import { getProjectedDeltaForReport, getProjectedDeltaForRespondedReports } from '@/lib/reports/projections';
 
 const urgencyStyles = {
   low: { bg: 'rgba(177, 218, 154, 0.12)', text: 'var(--tertiary)', border: 'rgba(177, 218, 154, 0.35)', label: 'Low' },
@@ -28,7 +29,7 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
 
   return (
     <div
-      className="report-card ledger-panel ledger-panel--light rounded p-3 mb-2 cursor-pointer"
+      className="report-card ledger-panel ledger-panel--light rounded p-3 mb-2 cursor-pointer transition-all duration-200"
       style={{
         backgroundColor: isActive ? 'var(--surface-container-highest)' : 'var(--surface-container-low)',
         borderColor: isActive ? 'var(--primary)' : 'var(--outline-variant)',
@@ -78,6 +79,9 @@ export function CouncilReports() {
   const respondedCount = reports.filter(r => r.status === 'responded').length;
   const totalCount = reports.length;
   const canAdvance = respondedCount > 0 && !isAdvancingTurn;
+  const allAddressed = totalCount > 0 && respondedCount === totalCount;
+  const activeIndex = reports.findIndex(report => report.id === activeReportId);
+  const projectedTotalDelta = getProjectedDeltaForRespondedReports(reports);
 
   return (
     <div className="flex flex-col h-full">
@@ -85,9 +89,16 @@ export function CouncilReports() {
         <h2 className="text-sm font-bold ledger-title">
           📋 Seasonal Reports
         </h2>
-        <span className="text-xs ledger-subtitle">
-          {respondedCount}/{totalCount} addressed
-        </span>
+        <div className="text-right">
+          <span className="block text-xs ledger-subtitle">
+            {respondedCount}/{totalCount} addressed
+          </span>
+          {activeIndex >= 0 && (
+            <span className="block text-[11px] ledger-subtitle">
+              Report {activeIndex + 1} of {totalCount}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-parchment">
@@ -95,6 +106,47 @@ export function CouncilReports() {
           <div className="text-center py-8 ledger-subtitle">
             <div className="text-2xl mb-2">📜</div>
             <div className="text-sm">No reports this season.</div>
+          </div>
+        ) : allAddressed ? (
+          <div className="space-y-2">
+            <div className="rounded border p-3 ledger-panel ledger-panel--light">
+              <div className="text-xs font-bold ledger-title text-center">✅ All advisors heard</div>
+              <div className="text-[11px] text-center ledger-subtitle mt-1">Review decisions before advancing the season</div>
+            </div>
+            {reports.map(report => {
+              const selectedChoice = report.choices.find(choice => choice.id === report.selectedChoiceId);
+              const projectedDelta = getProjectedDeltaForReport(report);
+              return (
+                <div
+                  key={report.id}
+                  className="rounded border p-3 cursor-pointer transition-all duration-200"
+                  style={{
+                    backgroundColor: activeReportId === report.id ? 'var(--surface-container-highest)' : 'var(--surface-container-low)',
+                    borderColor: activeReportId === report.id ? 'var(--primary)' : 'var(--outline-variant)',
+                  }}
+                  onClick={() => selectReport(report.id)}
+                >
+                  <div className="text-xs font-bold text-[var(--primary)] capitalize">
+                    {report.advisorId === 'steward' ? 'Steward Aldric'
+                      : report.advisorId === 'marshal' ? 'Marshal Garrett'
+                      : report.advisorId === 'merchant' ? 'Merchant Lyra'
+                      : 'Governor Elric'}
+                  </div>
+                  <div className="text-xs text-[var(--on-surface)] mt-1">{selectedChoice?.label ?? 'No response selected'}</div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {Object.entries(projectedDelta).map(([key, value]) => {
+                      if (value === 0) return null;
+                      const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
+                      return (
+                        <span key={key} className={`sigil-chip ${value > 0 ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
+                          {icon} {value > 0 ? '+' : ''}{value}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
           reports.map(report => (
@@ -109,6 +161,22 @@ export function CouncilReports() {
       </div>
 
       <div className="mt-3 pt-3 border-t ledger-divider">
+        {canAdvance && (
+          <div className="mb-2 rounded border p-2" style={{ backgroundColor: 'var(--surface-container-low)', borderColor: 'var(--outline-variant)' }}>
+            <p className="text-[11px] mb-1 text-center ledger-subtitle">Pending season net</p>
+            <div className="flex flex-wrap justify-center gap-1">
+              {Object.entries(projectedTotalDelta).map(([key, value]) => {
+                if (value === 0) return null;
+                const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
+                return (
+                  <span key={key} className={`sigil-chip ${value > 0 ? 'sigil-chip--positive' : 'sigil-chip--negative'}`}>
+                    {icon} {value > 0 ? '+' : ''}{value}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <button
           disabled={!canAdvance}
           onClick={advanceTurn}

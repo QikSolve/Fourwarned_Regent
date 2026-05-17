@@ -2,6 +2,7 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
+import { getProjectedDeltaForReport, getProjectedDeltaForRespondedReports } from '@/lib/reports/projections';
 
 const urgencyStyles = {
   low: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', label: 'Low' },
@@ -78,6 +79,8 @@ export function ReportsFeed() {
   const respondedCount = reports.filter(r => r.status === 'responded').length;
   const totalCount = reports.length;
   const canAdvance = respondedCount > 0 && !isAdvancingTurn;
+  const allAddressed = totalCount > 0 && respondedCount === totalCount;
+  const projectedTotalDelta = getProjectedDeltaForRespondedReports(reports);
 
   return (
     <div className="flex flex-col h-full">
@@ -96,6 +99,46 @@ export function ReportsFeed() {
             <div className="text-2xl mb-2">📜</div>
             <div className="text-sm">No reports this season.</div>
           </div>
+        ) : allAddressed ? (
+          <div className="space-y-2">
+            <div className="rounded border p-3" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
+              <div className="text-xs font-bold text-center" style={{ color: '#8b2635' }}>✅ All advisors heard</div>
+            </div>
+            {reports.map(report => {
+              const selectedChoice = report.choices.find(choice => choice.id === report.selectedChoiceId);
+              const projectedDelta = getProjectedDeltaForReport(report);
+              return (
+                <div
+                  key={report.id}
+                  className="rounded border p-3 cursor-pointer"
+                  style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}
+                  onClick={() => selectReport(report.id)}
+                >
+                  <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>{report.advisorId}</div>
+                  <div className="text-xs mt-1" style={{ color: '#2c1810' }}>{selectedChoice?.label ?? 'No response selected'}</div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {Object.entries(projectedDelta).map(([key, value]) => {
+                      if (value === 0) return null;
+                      const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
+                      return (
+                        <span
+                          key={key}
+                          className="text-xs px-2 py-0.5 rounded-full border"
+                          style={{
+                            backgroundColor: value > 0 ? '#d1fae5' : '#fee2e2',
+                            color: value > 0 ? '#065f46' : '#991b1b',
+                            borderColor: value > 0 ? '#6ee7b7' : '#fca5a5',
+                          }}
+                        >
+                          {icon} {value > 0 ? '+' : ''}{value}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           reports.map(report => (
             <ReportItem
@@ -109,6 +152,30 @@ export function ReportsFeed() {
       </div>
 
       <div className="mt-3 pt-3 border-t" style={{ borderColor: '#8b6914' }}>
+        {canAdvance && (
+          <div className="mb-2 rounded border p-2" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
+            <p className="text-[11px] mb-1 text-center" style={{ color: '#6b5744' }}>Pending season net</p>
+            <div className="flex flex-wrap justify-center gap-1">
+              {Object.entries(projectedTotalDelta).map(([key, value]) => {
+                if (value === 0) return null;
+                const icon = key === 'food' ? '🌾' : key === 'morale' ? '❤️' : key === 'gold' ? '💰' : key === 'threat' ? '⚔️' : '📜';
+                return (
+                  <span
+                    key={key}
+                    className="text-xs px-2 py-0.5 rounded-full border"
+                    style={{
+                      backgroundColor: value > 0 ? '#d1fae5' : '#fee2e2',
+                      color: value > 0 ? '#065f46' : '#991b1b',
+                      borderColor: value > 0 ? '#6ee7b7' : '#fca5a5',
+                    }}
+                  >
+                    {icon} {value > 0 ? '+' : ''}{value}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <button
           disabled={!canAdvance}
           onClick={advanceTurn}
