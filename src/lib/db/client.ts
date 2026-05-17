@@ -748,6 +748,153 @@ export async function transitionJobState(
   }
 }
 
+export async function claimNextJob(options: { jobType?: string } = {}): Promise<JobRow | null> {
+  const db = getPool();
+
+  if (!db) {
+    const queued = [...inMemoryJobs.values()].find(
+      j => j.status === 'queued' && (!options.jobType || j.job_type === options.jobType)
+    );
+    if (!queued) return null;
+    return transitionJobState(queued.id, 'claimed');
+  }
+
+  await ensureJobTables();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const claimSql = options.jobType
+      ? `
+          UPDATE jobs
+          SET status = 'claimed', claimed_at = NOW(), updated_at = NOW()
+          WHERE id = (
+            SELECT id FROM jobs
+            WHERE status = 'queued' AND job_type = $1
+            ORDER BY queued_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          ) AND status = 'queued'
+          RETURNING
+            id::text, job_type, status, payload, metadata, result, error_message,
+            attempt, max_attempts, idempotency_key, queued_at::text, claimed_at::text,
+            started_at::text, heartbeat_at::text, completed_at::text, failed_at::text,
+            cancelled_at::text, created_at::text, updated_at::text
+        `
+      : `
+          UPDATE jobs
+          SET status = 'claimed', claimed_at = NOW(), updated_at = NOW()
+          WHERE id = (
+            SELECT id FROM jobs
+            WHERE status = 'queued'
+            ORDER BY queued_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          ) AND status = 'queued'
+          RETURNING
+            id::text, job_type, status, payload, metadata, result, error_message,
+            attempt, max_attempts, idempotency_key, queued_at::text, claimed_at::text,
+            started_at::text, heartbeat_at::text, completed_at::text, failed_at::text,
+            cancelled_at::text, created_at::text, updated_at::text
+        `;
+
+    const claimed = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
+      claimSql,
+      options.jobType ? [options.jobType] : []
+    );
+
+    if (!claimed.rows[0]) {
+      await client.query('COMMIT');
+      return null;
+    }
+
+    const row: JobRow = {
+      ...claimed.rows[0],
+      payload: sanitizeRecord(claimed.rows[0].payload),
+      metadata: sanitizeRecord(claimed.rows[0].metadata),
+      result: claimed.rows[0].result ?? null,
+    };
+
+    await insertJobEvent(client, row.id, 'status_changed', { from: 'queued', to: 'claimed' });
+    await client.query('COMMIT');
+    return row;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateHeartbeat(jobId: string): Promise<boolean> {
+  const db = getPool();
+
+  if (!db) {
+    const job = inMemoryJobs.get(jobId);
+    if (!job || !['running', 'claimed'].includes(job.status)) return false;
+    inMemoryJobs.set(jobId, { ...job, heartbeat_at: nowIso(), updated_at: nowIso() });
+    return true;
+  }
+
+  await ensureJobTables();
+  const result = await db.query<{ id: string }>(
+    `UPDATE jobs
+     SET heartbeat_at = NOW(), updated_at = NOW()
+     WHERE id = $1::uuid AND status IN ('running', 'claimed')
+     RETURNING id::text`,
+    [jobId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function addPartialOutput(
+  jobId: string,
+  chunk: string,
+  metadata: Record<string, unknown> = {}
+): Promise<JobEventRow> {
+  const db = getPool();
+  const payload: Record<string, unknown> = { chunk, ...metadata };
+
+  if (!db) {
+    return addInMemoryJobEvent(jobId, 'partial_output', payload);
+  }
+
+  await ensureJobTables();
+  return insertJobEvent(db, jobId, 'partial_output', payload);
+}
+
+export async function getStaleJobs(staleAfterSeconds: number): Promise<JobRow[]> {
+  const db = getPool();
+
+  if (!db) {
+    const threshold = new Date(Date.now() - staleAfterSeconds * 1000).toISOString();
+    return [...inMemoryJobs.values()].filter(j => {
+      if (!['running', 'claimed'].includes(j.status)) return false;
+      const lastAlive = j.heartbeat_at ?? j.claimed_at ?? '';
+      return lastAlive < threshold;
+    });
+  }
+
+  await ensureJobTables();
+  const result = await db.query<Omit<JobRow, 'result'> & { result: unknown }>(
+    `SELECT
+       id::text, job_type, status, payload, metadata, result, error_message,
+       attempt, max_attempts, idempotency_key, queued_at::text, claimed_at::text,
+       started_at::text, heartbeat_at::text, completed_at::text, failed_at::text,
+       cancelled_at::text, created_at::text, updated_at::text
+     FROM jobs
+     WHERE status IN ('running', 'claimed')
+       AND COALESCE(heartbeat_at, claimed_at) < NOW() - ($1 || ' seconds')::interval`,
+    [String(staleAfterSeconds)]
+  );
+  return result.rows.map(row => ({
+    ...row,
+    payload: sanitizeRecord(row.payload),
+    metadata: sanitizeRecord(row.metadata),
+    result: row.result ?? null,
+  }));
+}
+
 export async function cancelJob(jobId: string): Promise<{ job: JobRow | null; cancelled: boolean }> {
   const current = await getJob(jobId);
   if (!current) {
