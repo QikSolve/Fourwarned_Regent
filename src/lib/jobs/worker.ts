@@ -44,12 +44,16 @@ export async function executeJob(
     // Heartbeat: updates timestamp and detects external cancellation.
     heartbeatTimer = setInterval(() => {
       void (async () => {
-        const current = await getJob(job.id);
-        if (!current || current.status === 'cancelled') {
-          abortController.abort('cancelled');
-          return;
+        try {
+          const current = await getJob(job.id);
+          if (!current || current.status === 'cancelled') {
+            abortController.abort('cancelled');
+            return;
+          }
+          await updateHeartbeat(job.id).catch(() => undefined);
+        } catch {
+          // Ignore transient errors; next heartbeat interval will retry.
         }
-        await updateHeartbeat(job.id).catch(() => undefined);
       })();
     }, heartbeatIntervalMs);
 

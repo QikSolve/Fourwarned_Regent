@@ -68,7 +68,7 @@ export function SeasonProgressView({ jobs, seasonLabel = 'Season Progress', clas
 
       {/* Summary counts */}
       <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="Status summary">
-        {(['running', 'queued', 'retrying', 'completed', 'failed', 'cancelled'] as JobStatus[])
+        {(['running', 'claimed', 'queued', 'retrying', 'completed', 'failed', 'cancelled'] as JobStatus[])
           .filter(s => stats.counts[s] > 0)
           .map(s => (
             <div key={s} className="flex items-center gap-1">

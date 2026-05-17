@@ -204,6 +204,11 @@ function buildNextJobRow(
   if (nextStatus === 'claimed' && !next.claimed_at) {
     next.claimed_at = now;
   }
+  if (nextStatus === 'queued') {
+    // Clear heartbeat so COALESCE(heartbeat_at, claimed_at) uses the fresh
+    // claimed_at after the next claim, not a stale timestamp from a prior run.
+    next.heartbeat_at = null;
+  }
   if (nextStatus === 'running') {
     next.started_at = next.started_at ?? now;
     next.heartbeat_at = now;
@@ -599,10 +604,15 @@ export async function getJob(id: string): Promise<JobRow | null> {
   return fetchJobFromDb(db, id);
 }
 
-export async function getJobEvents(jobId: string, limit = 50): Promise<JobEventRow[]> {
+export async function getJobEvents(jobId: string, limit = 50, afterId?: string): Promise<JobEventRow[]> {
   const db = getPool();
   if (!db) {
     const events = inMemoryJobEvents.get(jobId) ?? [];
+    if (afterId) {
+      const idx = events.findIndex(e => e.id === afterId);
+      const slice = idx >= 0 ? events.slice(idx + 1) : events;
+      return limit > 0 ? slice.slice(0, limit) : slice;
+    }
     return events.slice(-Math.max(1, limit));
   }
   await ensureJobTables();
@@ -611,10 +621,13 @@ export async function getJobEvents(jobId: string, limit = 50): Promise<JobEventR
       SELECT uuid::text AS id, job_id::text, event_type, payload, created_at::text
       FROM job_events
       WHERE job_id = $1::uuid
+        AND ($3::uuid IS NULL OR (created_at, uuid) > (
+          SELECT created_at, uuid FROM job_events WHERE uuid = $3::uuid
+        ))
       ORDER BY created_at ASC, id ASC
-      LIMIT $2
+      LIMIT NULLIF($2, 0)
     `,
-    [jobId, limit]
+    [jobId, limit, afterId ?? null]
   );
   return result.rows.map((row) => ({ ...row, payload: sanitizeRecord(row.payload) }));
 }
@@ -767,7 +780,7 @@ export async function claimNextJob(options: { jobType?: string } = {}): Promise<
     const claimSql = options.jobType
       ? `
           UPDATE jobs
-          SET status = 'claimed', claimed_at = NOW(), updated_at = NOW()
+          SET status = 'claimed', claimed_at = NOW(), heartbeat_at = NULL, updated_at = NOW()
           WHERE id = (
             SELECT id FROM jobs
             WHERE status = 'queued' AND job_type = $1
@@ -783,7 +796,7 @@ export async function claimNextJob(options: { jobType?: string } = {}): Promise<
         `
       : `
           UPDATE jobs
-          SET status = 'claimed', claimed_at = NOW(), updated_at = NOW()
+          SET status = 'claimed', claimed_at = NOW(), heartbeat_at = NULL, updated_at = NOW()
           WHERE id = (
             SELECT id FROM jobs
             WHERE status = 'queued'

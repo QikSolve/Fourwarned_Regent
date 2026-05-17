@@ -27,7 +27,7 @@ function formatEventTime(iso: string): string {
  * navigation.
  */
 export function JobLogFeed({ events, autoScroll = true, className = '' }: Props) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
     if (autoScroll && bottomRef.current) {
@@ -93,7 +93,7 @@ export function JobLogFeed({ events, autoScroll = true, className = '' }: Props)
           </li>
         );
       })}
-      <div ref={bottomRef} aria-hidden="true" />
+      <li ref={bottomRef} aria-hidden="true" />
     </ol>
   );
 }

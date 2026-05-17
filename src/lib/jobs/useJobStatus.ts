@@ -50,6 +50,9 @@ export function useJobStatus(jobId: string | null): JobStatusState {
     if (typeof EventSource !== 'undefined') {
       let es: EventSource | null = null;
       let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastStatus: string | null = null;
+
+      const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
       function connect() {
         if (closed) return;
@@ -71,6 +74,7 @@ export function useJobStatus(jobId: string | null): JobStatusState {
             };
 
             if (data.type === 'snapshot' && data.job) {
+              lastStatus = data.job.status;
               setState({ job: data.job, isConnected: true, error: null });
             } else if (data.type === 'event' && data.event) {
               setState(prev => {
@@ -84,6 +88,7 @@ export function useJobStatus(jobId: string | null): JobStatusState {
                 };
               });
             } else if (data.type === 'status' && data.status) {
+              lastStatus = data.status;
               setState(prev => {
                 if (!prev.job) return prev;
                 return { ...prev, job: { ...prev.job, status: data.status! } };
@@ -98,6 +103,11 @@ export function useJobStatus(jobId: string | null): JobStatusState {
           if (closed) return;
           es?.close();
           es = null;
+          // If the server closed the stream after a terminal state, don't reconnect.
+          if (lastStatus && TERMINAL_STATUSES.has(lastStatus)) {
+            setState(prev => ({ ...prev, isConnected: false, error: null }));
+            return;
+          }
           setState(prev => ({ ...prev, isConnected: false, error: 'Connection lost — reconnecting…' }));
           // Reconnect after a short delay.
           reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);

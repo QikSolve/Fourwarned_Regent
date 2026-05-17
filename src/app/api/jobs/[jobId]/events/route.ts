@@ -61,7 +61,7 @@ export async function GET(
       // Initial snapshot with full job state.
       const initEvents = await getJobEvents(jobId, MAX_EVENTS);
       enqueue({ type: 'snapshot', job: toJobStatusResponse(initJob, initEvents) });
-      let sentCount = initEvents.length;
+      let lastEventId: string | null = initEvents.length > 0 ? initEvents[initEvents.length - 1].id : null;
 
       if (isTerminalJobState(initJob.status)) {
         controller.close();
@@ -76,8 +76,11 @@ export async function GET(
         const job = await getJob(jobId).catch(() => null);
         if (!job) break;
 
-        const allEvents = await getJobEvents(jobId, MAX_EVENTS);
-        const newEvents = allEvents.slice(sentCount);
+        // Fetch only events newer than the last delivered one (cursor-based).
+        const newEvents = await getJobEvents(jobId, 0, lastEventId ?? undefined);
+        if (newEvents.length > 0) {
+          lastEventId = newEvents[newEvents.length - 1].id;
+        }
 
         for (const event of newEvents) {
           enqueue({
@@ -91,7 +94,6 @@ export async function GET(
             },
           });
         }
-        sentCount = allEvents.length;
 
         enqueue({ type: 'status', status: job.status });
 
