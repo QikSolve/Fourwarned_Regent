@@ -35,7 +35,7 @@ export const JobStatusResponseSchema = z.object({
   idempotencyKey: z.string().nullable(),
   payload: z.record(z.unknown()),
   metadata: z.record(z.unknown()),
-  result: z.record(z.unknown()).nullable(),
+  result: z.unknown().nullable(),
   errorMessage: z.string().nullable(),
   timestamps: z.object({
     queuedAt: z.string().datetime(),

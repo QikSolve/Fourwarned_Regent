@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { cancelJob, getJobEvents } from '@/lib/db/client';
+import { cancelJob, getJobEvents, InvalidJobTransitionError, JobTransitionConflictError } from '@/lib/db/client';
 import { JobStatusResponseSchema } from '@/lib/contracts/jobs';
 import { toJobStatusResponse } from '@/lib/jobs/serialize';
 import { incrementCounter } from '@/lib/observability/metrics';
@@ -40,6 +40,9 @@ export async function POST(
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof InvalidJobTransitionError || error instanceof JobTransitionConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     incrementCounter('apiFailure');
     logApiError('jobs.cancel.failed', error, {});
     return NextResponse.json({ error: 'Failed to cancel job' }, { status: 500 });

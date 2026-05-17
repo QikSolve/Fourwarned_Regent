@@ -19,3 +19,18 @@ test('assertValidJobTransition rejects invalid transitions', () => {
   assert.throws(() => assertValidJobTransition('queued', 'completed'));
   assert.throws(() => assertValidJobTransition('completed', 'running'));
 });
+
+test('isTerminalJobState: completed and cancelled are terminal; failed is not', () => {
+  assert.equal(isTerminalJobState('completed'), true);
+  assert.equal(isTerminalJobState('cancelled'), true);
+  assert.equal(isTerminalJobState('failed'), false, 'failed should not be terminal because failed -> retrying is allowed');
+  assert.equal(isTerminalJobState('queued'), false);
+  assert.equal(isTerminalJobState('running'), false);
+});
+
+test('canTransitionJobState rejects self-transitions', () => {
+  assert.equal(canTransitionJobState('queued', 'queued'), false);
+  assert.equal(canTransitionJobState('running', 'running'), false);
+  assert.equal(canTransitionJobState('completed', 'completed'), false);
+  assert.throws(() => assertValidJobTransition('running', 'running'));
+});

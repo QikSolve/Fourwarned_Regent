@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import type { JobStatus } from '@/lib/contracts/jobs';
 import { assertValidJobTransition } from '@/lib/jobs/lifecycle';
 
@@ -17,7 +17,7 @@ export type JobRow = {
   status: JobStatus;
   payload: Record<string, unknown>;
   metadata: Record<string, unknown>;
-  result: Record<string, unknown> | null;
+  result: unknown | null;
   error_message: string | null;
   attempt: number;
   max_attempts: number;
@@ -50,6 +50,8 @@ export type CreateJobInput = {
 };
 
 export class InvalidJobTransitionError extends Error {}
+export class JobTransitionConflictError extends Error {}
+export class IdempotencyConflictError extends Error {}
 
 let pool: Pool | null = null;
 let campaignTableInitialized = false;
@@ -105,6 +107,12 @@ async function ensureJobTables(): Promise<void> {
     return;
   }
 
+  // Only create tables automatically outside production; in production the
+  // migration runner (20260517_job_queue_and_events.sql) is the source of truth.
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
   await db.query(`
     CREATE TABLE IF NOT EXISTS jobs (
       id UUID PRIMARY KEY,
@@ -132,6 +140,7 @@ async function ensureJobTables(): Promise<void> {
   await db.query(`
     CREATE TABLE IF NOT EXISTS job_events (
       id BIGSERIAL PRIMARY KEY,
+      uuid UUID NOT NULL DEFAULT gen_random_uuid(),
       job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
       event_type TEXT NOT NULL,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -142,7 +151,8 @@ async function ensureJobTables(): Promise<void> {
   await db.query('CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs (status)');
   await db.query('CREATE INDEX IF NOT EXISTS jobs_updated_at_idx ON jobs (updated_at DESC)');
   await db.query('CREATE INDEX IF NOT EXISTS jobs_queued_at_idx ON jobs (queued_at)');
-  await db.query('CREATE INDEX IF NOT EXISTS job_events_job_created_idx ON job_events (job_id, created_at)');
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS job_events_uuid_idx ON job_events (uuid)');
+  await db.query('CREATE INDEX IF NOT EXISTS job_events_job_created_idx ON job_events (job_id, created_at ASC, id ASC)');
 
   jobTablesInitialized = true;
 }
@@ -164,6 +174,7 @@ function toInMemoryRow(id: string, state: unknown, version: number, createdAt?: 
 
 function sanitizeRecord(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    console.warn('[db/client] sanitizeRecord: expected plain object, got %s — coercing to {}', Array.isArray(value) ? 'array' : typeof value);
     return {};
   }
   return value as Record<string, unknown>;
@@ -173,7 +184,7 @@ function buildNextJobRow(
   current: JobRow,
   nextStatus: JobStatus,
   options: {
-    result?: Record<string, unknown> | null;
+    result?: unknown | null;
     errorMessage?: string | null;
     incrementAttempt?: boolean;
   } = {}
@@ -234,16 +245,16 @@ async function addInMemoryJobEvent(
 }
 
 async function insertJobEvent(
-  db: Pool,
+  client: Pool | PoolClient,
   jobId: string,
   eventType: string,
   payload: Record<string, unknown>
 ): Promise<JobEventRow> {
-  const inserted = await db.query<JobEventRow>(
+  const inserted = await client.query<{ id: string; job_id: string; event_type: string; payload: unknown; created_at: string }>(
     `
       INSERT INTO job_events (job_id, event_type, payload)
       VALUES ($1::uuid, $2, $3::jsonb)
-      RETURNING id::text, job_id::text, event_type, payload, created_at::text
+      RETURNING uuid::text AS id, job_id::text, event_type, payload, created_at::text
     `,
     [jobId, eventType, JSON.stringify(payload)]
   );
@@ -254,8 +265,8 @@ async function insertJobEvent(
   };
 }
 
-async function fetchJobFromDb(db: Pool, jobId: string): Promise<JobRow | null> {
-  const result = await db.query<JobRow>(
+async function fetchJobFromDb(client: Pool | PoolClient, jobId: string): Promise<JobRow | null> {
+  const result = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
     `
       SELECT
         id::text,
@@ -294,7 +305,7 @@ async function fetchJobFromDb(db: Pool, jobId: string): Promise<JobRow | null> {
     status: row.status,
     payload: sanitizeRecord(row.payload),
     metadata: sanitizeRecord(row.metadata),
-    result: row.result === null ? null : sanitizeRecord(row.result),
+    result: row.result ?? null,
   };
 }
 
@@ -358,6 +369,17 @@ export async function getCampaignCount(): Promise<number> {
   return Number.parseInt(result.rows[0]?.count ?? '0', 10);
 }
 
+function jobFieldsMatch(stored: JobRow, input: CreateJobInput): boolean {
+  const inputMaxAttempts = input.maxAttempts ?? 3;
+  const inputMetadata = input.metadata ?? {};
+  return (
+    stored.job_type === input.jobType &&
+    stored.max_attempts === inputMaxAttempts &&
+    JSON.stringify(stored.payload) === JSON.stringify(input.payload) &&
+    JSON.stringify(stored.metadata) === JSON.stringify(inputMetadata)
+  );
+}
+
 export async function enqueueJob(input: CreateJobInput): Promise<{ job: JobRow; created: boolean }> {
   const db = getPool();
   const maxAttempts = input.maxAttempts ?? 3;
@@ -369,6 +391,11 @@ export async function enqueueJob(input: CreateJobInput): Promise<{ job: JobRow; 
       if (existingId) {
         const existing = inMemoryJobs.get(existingId);
         if (existing) {
+          if (!jobFieldsMatch(existing, input)) {
+            throw new IdempotencyConflictError(
+              `Idempotency key '${input.idempotencyKey}' already exists with different job parameters`
+            );
+          }
           return { job: existing, created: false };
         }
       }
@@ -409,12 +436,119 @@ export async function enqueueJob(input: CreateJobInput): Promise<{ job: JobRow; 
 
   if (input.idempotencyKey) {
     const jobId = randomUUID();
-    const inserted = await db.query<JobRow>(
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const inserted = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
+        `
+          INSERT INTO jobs (id, job_type, status, payload, metadata, max_attempts, idempotency_key)
+          VALUES ($1::uuid, $2, 'queued', $3::jsonb, $4::jsonb, $5, $6)
+          ON CONFLICT (idempotency_key)
+          DO NOTHING
+          RETURNING
+            id::text,
+            job_type,
+            status,
+            payload,
+            metadata,
+            result,
+            error_message,
+            attempt,
+            max_attempts,
+            idempotency_key,
+            queued_at::text,
+            claimed_at::text,
+            started_at::text,
+            heartbeat_at::text,
+            completed_at::text,
+            failed_at::text,
+            cancelled_at::text,
+            created_at::text,
+            updated_at::text
+        `,
+        [jobId, input.jobType, JSON.stringify(input.payload), JSON.stringify(metadata), maxAttempts, input.idempotencyKey]
+      );
+
+      if (inserted.rows[0]) {
+        const created = {
+          ...inserted.rows[0],
+          payload: sanitizeRecord(inserted.rows[0].payload),
+          metadata: sanitizeRecord(inserted.rows[0].metadata),
+          result: inserted.rows[0].result ?? null,
+        };
+        await insertJobEvent(client, created.id, 'status_changed', { to: 'queued', reason: 'enqueued' });
+        await client.query('COMMIT');
+        return { job: created, created: true };
+      }
+
+      const existing = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
+        `
+          SELECT
+            id::text,
+            job_type,
+            status,
+            payload,
+            metadata,
+            result,
+            error_message,
+            attempt,
+            max_attempts,
+            idempotency_key,
+            queued_at::text,
+            claimed_at::text,
+            started_at::text,
+            heartbeat_at::text,
+            completed_at::text,
+            failed_at::text,
+            cancelled_at::text,
+            created_at::text,
+            updated_at::text
+          FROM jobs
+          WHERE idempotency_key = $1
+          LIMIT 1
+        `,
+        [input.idempotencyKey]
+      );
+
+      await client.query('COMMIT');
+
+      const row = existing.rows[0];
+      if (!row) {
+        throw new Error('Failed to load idempotent job');
+      }
+
+      const storedJob: JobRow = {
+        ...row,
+        payload: sanitizeRecord(row.payload),
+        metadata: sanitizeRecord(row.metadata),
+        result: row.result ?? null,
+      };
+
+      if (!jobFieldsMatch(storedJob, input)) {
+        throw new IdempotencyConflictError(
+          `Idempotency key '${input.idempotencyKey}' already exists with different job parameters`
+        );
+      }
+
+      return { job: storedJob, created: false };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const jobId = randomUUID();
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const created = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
       `
-        INSERT INTO jobs (id, job_type, status, payload, metadata, max_attempts, idempotency_key)
-        VALUES ($1::uuid, $2, 'queued', $3::jsonb, $4::jsonb, $5, $6)
-        ON CONFLICT (idempotency_key)
-        DO NOTHING
+        INSERT INTO jobs (id, job_type, status, payload, metadata, max_attempts)
+        VALUES ($1::uuid, $2, 'queued', $3::jsonb, $4::jsonb, $5)
         RETURNING
           id::text,
           job_type,
@@ -436,102 +570,24 @@ export async function enqueueJob(input: CreateJobInput): Promise<{ job: JobRow; 
           created_at::text,
           updated_at::text
       `,
-      [jobId, input.jobType, JSON.stringify(input.payload), JSON.stringify(metadata), maxAttempts, input.idempotencyKey]
+      [jobId, input.jobType, JSON.stringify(input.payload), JSON.stringify(metadata), maxAttempts]
     );
 
-    if (inserted.rows[0]) {
-      const created = {
-        ...inserted.rows[0],
-        payload: sanitizeRecord(inserted.rows[0].payload),
-        metadata: sanitizeRecord(inserted.rows[0].metadata),
-        result: inserted.rows[0].result === null ? null : sanitizeRecord(inserted.rows[0].result),
-      };
-      await insertJobEvent(db, created.id, 'status_changed', { to: 'queued', reason: 'enqueued' });
-      return { job: created, created: true };
-    }
-
-    const existing = await db.query<JobRow>(
-      `
-        SELECT
-          id::text,
-          job_type,
-          status,
-          payload,
-          metadata,
-          result,
-          error_message,
-          attempt,
-          max_attempts,
-          idempotency_key,
-          queued_at::text,
-          claimed_at::text,
-          started_at::text,
-          heartbeat_at::text,
-          completed_at::text,
-          failed_at::text,
-          cancelled_at::text,
-          created_at::text,
-          updated_at::text
-        FROM jobs
-        WHERE idempotency_key = $1
-        LIMIT 1
-      `,
-      [input.idempotencyKey]
-    );
-
-    const row = existing.rows[0];
-    if (!row) {
-      throw new Error('Failed to load idempotent job');
-    }
-
-    return {
-      job: {
-        ...row,
-        payload: sanitizeRecord(row.payload),
-        metadata: sanitizeRecord(row.metadata),
-        result: row.result === null ? null : sanitizeRecord(row.result),
-      },
-      created: false,
+    const row = {
+      ...created.rows[0],
+      payload: sanitizeRecord(created.rows[0]?.payload),
+      metadata: sanitizeRecord(created.rows[0]?.metadata),
+      result: created.rows[0]?.result ?? null,
     };
+    await insertJobEvent(client, row.id, 'status_changed', { to: 'queued', reason: 'enqueued' });
+    await client.query('COMMIT');
+    return { job: row, created: true };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
-
-  const jobId = randomUUID();
-  const created = await db.query<JobRow>(
-    `
-      INSERT INTO jobs (id, job_type, status, payload, metadata, max_attempts)
-      VALUES ($1::uuid, $2, 'queued', $3::jsonb, $4::jsonb, $5)
-      RETURNING
-        id::text,
-        job_type,
-        status,
-        payload,
-        metadata,
-        result,
-        error_message,
-        attempt,
-        max_attempts,
-        idempotency_key,
-        queued_at::text,
-        claimed_at::text,
-        started_at::text,
-        heartbeat_at::text,
-        completed_at::text,
-        failed_at::text,
-        cancelled_at::text,
-        created_at::text,
-        updated_at::text
-    `,
-    [jobId, input.jobType, JSON.stringify(input.payload), JSON.stringify(metadata), maxAttempts]
-  );
-
-  const row = {
-    ...created.rows[0],
-    payload: sanitizeRecord(created.rows[0]?.payload),
-    metadata: sanitizeRecord(created.rows[0]?.metadata),
-    result: created.rows[0]?.result === null ? null : sanitizeRecord(created.rows[0]?.result),
-  };
-  await insertJobEvent(db, row.id, 'status_changed', { to: 'queued', reason: 'enqueued' });
-  return { job: row, created: true };
 }
 
 export async function getJob(id: string): Promise<JobRow | null> {
@@ -550,26 +606,24 @@ export async function getJobEvents(jobId: string, limit = 50): Promise<JobEventR
     return events.slice(-Math.max(1, limit));
   }
   await ensureJobTables();
-  const result = await db.query<JobEventRow>(
+  const result = await db.query<{ id: string; job_id: string; event_type: string; payload: unknown; created_at: string }>(
     `
-      SELECT id::text, job_id::text, event_type, payload, created_at::text
+      SELECT uuid::text AS id, job_id::text, event_type, payload, created_at::text
       FROM job_events
       WHERE job_id = $1::uuid
-      ORDER BY created_at DESC
+      ORDER BY created_at ASC, id ASC
       LIMIT $2
     `,
     [jobId, limit]
   );
-  return result.rows
-    .map((row) => ({ ...row, payload: sanitizeRecord(row.payload) }))
-    .reverse();
+  return result.rows.map((row) => ({ ...row, payload: sanitizeRecord(row.payload) }));
 }
 
 export async function transitionJobState(
   jobId: string,
   nextStatus: JobStatus,
   options: {
-    result?: Record<string, unknown> | null;
+    result?: unknown | null;
     errorMessage?: string | null;
     incrementAttempt?: boolean;
   } = {}
@@ -598,11 +652,13 @@ export async function transitionJobState(
   }
 
   await ensureJobTables();
-  await db.query('BEGIN');
+  const client = await db.connect();
   try {
-    const current = await fetchJobFromDb(db, jobId);
+    await client.query('BEGIN');
+
+    const current = await fetchJobFromDb(client, jobId);
     if (!current) {
-      await db.query('ROLLBACK');
+      await client.query('ROLLBACK');
       return null;
     }
 
@@ -613,7 +669,7 @@ export async function transitionJobState(
       throw new InvalidJobTransitionError(error instanceof Error ? error.message : 'Invalid transition');
     }
 
-    const updated = await db.query<JobRow>(
+    const updated = await client.query<Omit<JobRow, 'result'> & { result: unknown }>(
       `
         UPDATE jobs
         SET
@@ -654,7 +710,7 @@ export async function transitionJobState(
         jobId,
         current.status,
         next.status,
-        next.result ? JSON.stringify(next.result) : null,
+        next.result !== null ? JSON.stringify(next.result) : null,
         next.error_message,
         next.attempt,
         next.claimed_at,
@@ -668,25 +724,27 @@ export async function transitionJobState(
     );
 
     if (!updated.rows[0]) {
-      throw new Error('Concurrent job transition conflict');
+      throw new JobTransitionConflictError('Concurrent job transition conflict');
     }
 
-    await insertJobEvent(db, jobId, 'status_changed', {
+    await insertJobEvent(client, jobId, 'status_changed', {
       from: current.status,
       to: nextStatus,
     });
 
-    await db.query('COMMIT');
+    await client.query('COMMIT');
 
     return {
       ...updated.rows[0],
       payload: sanitizeRecord(updated.rows[0].payload),
       metadata: sanitizeRecord(updated.rows[0].metadata),
-      result: updated.rows[0].result === null ? null : sanitizeRecord(updated.rows[0].result),
+      result: updated.rows[0].result ?? null,
     };
   } catch (error) {
-    await db.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => undefined);
     throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -704,8 +762,17 @@ export async function cancelJob(jobId: string): Promise<{ job: JobRow | null; ca
   return { job: updated, cancelled: updated !== null };
 }
 
-export function __resetInMemoryJobStoreForTests(): void {
+export function __resetInMemoryStoresForTests(): void {
   inMemoryJobs.clear();
   inMemoryJobEvents.clear();
   inMemoryIdempotencyKeys.clear();
+  inMemoryCampaigns.clear();
+  campaignTableInitialized = false;
+  jobTablesInitialized = false;
 }
+
+/** @deprecated Use __resetInMemoryStoresForTests instead */
+export function __resetInMemoryJobStoreForTests(): void {
+  __resetInMemoryStoresForTests();
+}
+

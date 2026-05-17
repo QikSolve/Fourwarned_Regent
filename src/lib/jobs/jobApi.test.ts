@@ -4,15 +4,16 @@ import { POST as enqueueJobRoute } from '@/app/api/jobs/route';
 import { GET as getJobStatusRoute } from '@/app/api/jobs/[jobId]/route';
 import { POST as cancelJobRoute } from '@/app/api/jobs/[jobId]/cancel/route';
 import {
-  __resetInMemoryJobStoreForTests,
+  __resetInMemoryStoresForTests,
   enqueueJob,
   getJobEvents,
   transitionJobState,
   InvalidJobTransitionError,
+  IdempotencyConflictError,
 } from '@/lib/db/client';
 
 beforeEach(() => {
-  __resetInMemoryJobStoreForTests();
+  __resetInMemoryStoresForTests();
 });
 
 test('job lifecycle supports queue -> claim -> running -> completed with audit events', async () => {
@@ -28,7 +29,7 @@ test('job lifecycle supports queue -> claim -> running -> completed with audit e
   assert.equal(claimed?.status, 'claimed');
   assert.equal(running?.status, 'running');
   assert.equal(completed?.status, 'completed');
-  assert.equal(completed?.result?.transcriptId, 't-1');
+  assert.deepEqual((completed?.result as Record<string, unknown>)?.transcriptId, 't-1');
 
   const events = await getJobEvents(job.id);
   assert.equal(events.length, 4);
@@ -116,6 +117,36 @@ test('enqueue and status routes validate payload and return normalized response'
   assert.equal(statusPayload.status, 'queued');
 });
 
+test('enqueue returns 409 when idempotency key is reused with different parameters', async () => {
+  await enqueueJob({
+    jobType: 'advisor-conversation',
+    payload: { advisorId: 'steward' },
+    idempotencyKey: 'key-mismatch-test',
+  });
+
+  await assert.rejects(
+    () => enqueueJob({
+      jobType: 'advisor-conversation',
+      payload: { advisorId: 'DIFFERENT_ADVISOR' },
+      idempotencyKey: 'key-mismatch-test',
+    }),
+    IdempotencyConflictError
+  );
+
+  const mismatchResponse = await enqueueJobRoute(
+    new Request('http://localhost/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobType: 'advisor-conversation',
+        payload: { advisorId: 'DIFFERENT_ADVISOR' },
+        idempotencyKey: 'key-mismatch-test',
+      }),
+    })
+  );
+  assert.equal(mismatchResponse.status, 409);
+});
+
 test('cancel route cancels active job and rejects invalid IDs/non-cancellable states', async () => {
   const { job } = await enqueueJob({
     jobType: 'advisor-conversation',
@@ -150,3 +181,4 @@ test('cancel route cancels active job and rejects invalid IDs/non-cancellable st
   );
   assert.equal(nonCancellableResponse.status, 409);
 });
+

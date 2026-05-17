@@ -11,13 +11,10 @@ const transitionMap: Record<JobStatus, ReadonlySet<JobStatus>> = {
 };
 
 export function isTerminalJobState(status: JobStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled';
+  return status === 'completed' || status === 'cancelled';
 }
 
 export function canTransitionJobState(from: JobStatus, to: JobStatus): boolean {
-  if (from === to) {
-    return true;
-  }
   return transitionMap[from].has(to);
 }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { enqueueJob, getJobEvents } from '@/lib/db/client';
+import { enqueueJob, getJobEvents, IdempotencyConflictError } from '@/lib/db/client';
 import { EnqueueJobRequestSchema, JobStatusResponseSchema } from '@/lib/contracts/jobs';
 import { toJobStatusResponse } from '@/lib/jobs/serialize';
 import { incrementCounter } from '@/lib/observability/metrics';
@@ -29,6 +29,9 @@ export async function POST(request: Request) {
     const response = JobStatusResponseSchema.parse(toJobStatusResponse(job, events));
     return NextResponse.json(response, { status: created ? 201 : 200 });
   } catch (error) {
+    if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     incrementCounter('apiFailure');
     logApiError('jobs.enqueue.failed', error, {});
     return NextResponse.json({ error: 'Failed to enqueue job' }, { status: 500 });

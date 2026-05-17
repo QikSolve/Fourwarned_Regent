@@ -27,13 +27,15 @@ CREATE INDEX IF NOT EXISTS jobs_queued_at_idx ON jobs (queued_at);
 
 CREATE TABLE IF NOT EXISTS job_events (
   id BIGSERIAL PRIMARY KEY,
+  uuid UUID NOT NULL DEFAULT gen_random_uuid(),
   job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   event_type TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS job_events_job_created_idx ON job_events (job_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS job_events_uuid_idx ON job_events (uuid);
+CREATE INDEX IF NOT EXISTS job_events_job_created_idx ON job_events (job_id, created_at ASC, id ASC);
 
 -- down
 DROP TABLE IF EXISTS job_events;
