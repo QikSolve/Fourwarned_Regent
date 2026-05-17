@@ -19,5 +19,5 @@ Define durable job queue records, state transitions, and API endpoints for enque
 
 ## Acceptance Criteria
 - Job records are persisted and queryable by ID.
-- API callers can enqueue and fetch status reliably.
+- API callers can enqueue, fetch status, and cancel jobs reliably.
 - Lifecycle transitions are valid and auditable.

@@ -15,4 +15,5 @@ Add worker/job controls for cancellation, retry scheduling, and heartbeat monito
 ## Definition of Done
 - [ ] Cancel and retry paths implemented and documented.
 - [ ] Heartbeat update and timeout handling implemented.
-- [ ] Local/manual verification covers cancel + retry + stale-worker scenarios.
+- [ ] Automated tests cover cancel + retry + stale-worker timeout scenarios using the existing project test command/patterns.
+- [ ] Local/manual verification confirms expected behavior in an end-to-end run.

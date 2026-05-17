@@ -1,11 +1,12 @@
-# Story 112 — Enqueue and Status API
+# Story 112 — Enqueue, Status, and Cancel API
 
 ## Summary
-Implement API endpoints to enqueue new agent-conversation jobs and retrieve job status/details by ID.
+Implement API endpoints to enqueue new agent-conversation jobs, retrieve job status/details by ID, and cancel active/pending jobs.
 
 ## Acceptance Criteria
 - [ ] Enqueue endpoint validates inputs and creates a `queued` job.
 - [ ] Status endpoint returns normalized lifecycle status and key metadata.
+- [ ] Cancel endpoint transitions eligible jobs to `cancelled` with a consistent API response contract.
 - [ ] API handles missing/invalid IDs with clear error responses.
 
 ## Dependencies

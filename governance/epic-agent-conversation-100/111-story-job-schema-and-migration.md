@@ -1,12 +1,13 @@
 # Story 111 — Job Schema and Migration
 
 ## Summary
-Create the core jobs schema and migration(s) to support queueing, state tracking, retries, timestamps, and payload metadata.
+Create the core jobs schema and migration(s) to support queueing, state tracking, retries, timestamps, payload metadata, and persisted event/partial-output records used by worker streaming and realtime UI.
 
 ## Acceptance Criteria
 - [ ] Migration creates required job tables/indexes.
 - [ ] State-related columns support lifecycle transitions and retry counts.
 - [ ] Schema supports timestamps for enqueue, claim, heartbeat, completion, and cancellation.
+- [ ] Schema includes a durable job-event/partial-output shape for realtime event propagation and transcript/log playback.
 
 ## Dependencies
 - [100-epic-agent-conversation.md](100-epic-agent-conversation.md)

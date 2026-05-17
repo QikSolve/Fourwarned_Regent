@@ -5,7 +5,7 @@ Deliver realtime user experience for job status, partial outputs, and progress a
 
 ## Includes
 - Realtime channel for job events.
-- UI status indicators for queue/running/success/failure/cancelled.
+- UI status indicators mapped directly to lifecycle states: `queued`, `claimed`, `running`, `retrying`, `completed`, `failed`, `cancelled`.
 - Live log/partial token display.
 - Season-level progress view across active advisor work.
 

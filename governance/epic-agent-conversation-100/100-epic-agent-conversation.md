@@ -7,6 +7,7 @@ Move from deterministic advisor selection to real advisor conversations with vis
 - Introduce queued background jobs and explicit job state transitions.
 - Execute advisor/scribe work in workers with progress updates and partial streaming.
 - Surface realtime job status, logs, and partial outputs in the UI.
+- Define advisor conversation contract behavior: per-advisor threads, follow-up prompts, session memory modes, and transcript handling.
 
 ## Architecture Decisions
 - **Database**: Keep Neon (Postgres) as the primary database.
@@ -25,6 +26,11 @@ Move from deterministic advisor selection to real advisor conversations with vis
 - [121-story-worker-claim-execute.md](121-story-worker-claim-execute.md)
 - [122-story-cancel-retry-heartbeat.md](122-story-cancel-retry-heartbeat.md)
 - [131-story-realtime-channel-and-ui-status.md](131-story-realtime-channel-and-ui-status.md)
+
+## Conversation Contract Coverage
+- **Per-advisor thread + transcript state**: [121-story-worker-claim-execute.md](121-story-worker-claim-execute.md)
+- **Follow-up prompt and lifecycle APIs (enqueue/status/cancel)**: [112-story-enqueue-and-status-api.md](112-story-enqueue-and-status-api.md)
+- **Realtime conversation transcript UX + accessibility/memory visibility**: [131-story-realtime-channel-and-ui-status.md](131-story-realtime-channel-and-ui-status.md)
 
 ## MVP Testing Note
 For MVP: validation is friends-and-family testing, and privacy handling is informal for this phase.

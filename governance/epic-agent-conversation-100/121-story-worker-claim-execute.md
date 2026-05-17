@@ -7,6 +7,7 @@ Implement worker logic to claim queued jobs, execute agent conversation work, an
 - [ ] Worker claims only eligible jobs using safe lease semantics.
 - [ ] Execution persists running state and final result status.
 - [ ] Partial outputs are emitted/persisted during execution.
+- [ ] Per-advisor conversation thread state and transcript records are persisted to support follow-up continuity.
 
 ## Dependencies
 - [111-story-job-schema-and-migration.md](111-story-job-schema-and-migration.md)
