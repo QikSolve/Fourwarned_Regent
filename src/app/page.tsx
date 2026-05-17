@@ -11,10 +11,12 @@ import { DoctrineEditor } from '@/components/DoctrineEditor';
 import { ProceduresModal } from '@/components/ProceduresModal';
 import { AdvisorChatModal } from '@/components/AdvisorChatModal';
 import { AdvisorJobProgress } from '@/components/AdvisorJobProgress';
+import { getDeploymentVersion } from '@/lib/deploymentVersion';
 
 export default function Home() {
   const initGame = useGameStore(s => s.initGame);
   const showProceduresModal = useGameStore(s => s.showProceduresModal);
+  const deploymentVersion = getDeploymentVersion();
 
   useEffect(() => {
     initGame();
@@ -29,6 +31,9 @@ export default function Home() {
             <div>
               <h1 className="text-lg font-bold ledger-title">Four Warned: Regent</h1>
               <p className="text-xs ledger-subtitle">Medieval Governance Simulation · MVP v0.2</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--secondary)]">
+                Deployment {deploymentVersion}
+              </p>
             </div>
           </div>
           <div className="text-xs italic ledger-subtitle text-right">
