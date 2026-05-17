@@ -3,6 +3,7 @@ import {
   claimNextJob,
   updateHeartbeat,
   addPartialOutput,
+  addJobEvent,
   transitionJobState,
   getJob,
   getStaleJobs,
@@ -20,6 +21,58 @@ export type JobExecutor = (
   emitPartial: (chunk: string, meta?: Record<string, unknown>) => Promise<void>,
   signal: AbortSignal
 ) => Promise<unknown>;
+
+type AdvisorTranscriptMessage = { role: 'user' | 'advisor'; text: string };
+
+function toAdvisorTranscript(result: unknown): { advisorId: string; transcript: AdvisorTranscriptMessage[] } | null {
+  if (typeof result !== 'object' || result === null) {
+    return null;
+  }
+
+  const maybeAdvisorId = (result as { advisorId?: unknown }).advisorId;
+  const maybeTranscript = (result as { transcriptSnapshot?: unknown }).transcriptSnapshot;
+
+  if (typeof maybeAdvisorId !== 'string' || !Array.isArray(maybeTranscript)) {
+    return null;
+  }
+
+  const transcript = maybeTranscript.filter((item): item is AdvisorTranscriptMessage => {
+    if (typeof item !== 'object' || item === null) return false;
+    const role = (item as { role?: unknown }).role;
+    const text = (item as { text?: unknown }).text;
+    return (role === 'user' || role === 'advisor') && typeof text === 'string';
+  });
+
+  return transcript.length > 0 ? { advisorId: maybeAdvisorId, transcript } : null;
+}
+
+async function persistAdvisorConversationArtifacts(job: JobRow, result: unknown): Promise<void> {
+  if (job.job_type !== 'advisor-conversation') {
+    return;
+  }
+
+  const parsed = toAdvisorTranscript(result);
+  if (!parsed) {
+    return;
+  }
+
+  const { advisorId, transcript } = parsed;
+  const lastMessage = transcript[transcript.length - 1];
+
+  await addJobEvent(job.id, 'advisor_thread_state', {
+    advisorId,
+    messageCount: transcript.length,
+    lastRole: lastMessage.role,
+    lastText: lastMessage.text,
+  });
+
+  await Promise.all(transcript.map((message, index) => addJobEvent(job.id, 'advisor_transcript', {
+    advisorId,
+    index,
+    role: message.role,
+    text: message.text,
+  })));
+}
 
 /**
  * Executes a claimed job: transitions it through running → completed/failed/retrying,
@@ -68,6 +121,8 @@ export async function executeJob(
     );
 
     if (abortController.signal.aborted) return;
+
+    await persistAdvisorConversationArtifacts(job, result);
 
     await transitionJobState(job.id, 'completed', { result });
   } catch (error) {

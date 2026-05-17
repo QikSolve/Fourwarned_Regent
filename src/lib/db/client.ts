@@ -865,15 +865,22 @@ export async function addPartialOutput(
   chunk: string,
   metadata: Record<string, unknown> = {}
 ): Promise<JobEventRow> {
+  return addJobEvent(jobId, 'partial_output', { chunk, ...metadata });
+}
+
+export async function addJobEvent(
+  jobId: string,
+  eventType: string,
+  payload: Record<string, unknown> = {}
+): Promise<JobEventRow> {
   const db = getPool();
-  const payload: Record<string, unknown> = { chunk, ...metadata };
 
   if (!db) {
-    return addInMemoryJobEvent(jobId, 'partial_output', payload);
+    return addInMemoryJobEvent(jobId, eventType, payload);
   }
 
   await ensureJobTables();
-  return insertJobEvent(db, jobId, 'partial_output', payload);
+  return insertJobEvent(db, jobId, eventType, payload);
 }
 
 export async function getStaleJobs(staleAfterSeconds: number): Promise<JobRow[]> {
@@ -935,4 +942,3 @@ export function __resetInMemoryStoresForTests(): void {
 export function __resetInMemoryJobStoreForTests(): void {
   __resetInMemoryStoresForTests();
 }
-
