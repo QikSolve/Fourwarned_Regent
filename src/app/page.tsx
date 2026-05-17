@@ -10,6 +10,7 @@ import { ScribePanel } from '@/components/ScribePanel';
 import { DoctrineEditor } from '@/components/DoctrineEditor';
 import { ProceduresModal } from '@/components/ProceduresModal';
 import { AdvisorChatModal } from '@/components/AdvisorChatModal';
+import { AdvisorJobProgress } from '@/components/AdvisorJobProgress';
 
 export default function Home() {
   const initGame = useGameStore(s => s.initGame);
@@ -53,6 +54,7 @@ export default function Home() {
         </main>
 
         <aside className="w-full xl:w-80 xl:flex-shrink-0 overflow-y-auto p-4 ledger-panel">
+          <AdvisorJobProgress />
           <ScribePanel />
           <DoctrineEditor />
         </aside>

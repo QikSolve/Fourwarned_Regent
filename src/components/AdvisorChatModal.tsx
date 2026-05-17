@@ -4,9 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore } from '@/lib/gameStore';
 import { ADVISOR_META } from '@/lib/ai/advisorMeta';
 import type { AdvisorId, AdvisorTone } from '@/lib/gameTypes';
+import { useJobStatus } from '@/lib/jobs/useJobStatus';
+import { JobLogFeed } from '@/components/JobLogFeed';
+import type { JobStatusResponse } from '@/lib/contracts/jobs';
+import type { AdvisorJobResult } from '@/lib/jobs/advisorExecutor';
 
 const QUICK_CHIPS = ['Why?', 'Alternative', 'Pros/Cons', 'Explain more'] as const;
 const TONE_OPTIONS = ['Concise', 'Analytical', 'Collaborative'] as const;
+const ACTIVE_JOB_STATUSES = new Set(['queued', 'claimed', 'running', 'retrying']);
 
 function TypingIndicator() {
   return (
@@ -29,16 +34,24 @@ export function AdvisorChatModal() {
   const showChatModal = useGameStore(s => s.showChatModal);
   const chatAdvisorId = useGameStore(s => s.chatAdvisorId);
   const advisors = useGameStore(s => s.advisors);
+  const metrics = useGameStore(s => s.metrics);
   const conversations = useGameStore(s => s.conversations);
-  const isChatLoading = useGameStore(s => s.isChatLoading);
   const closeChatModal = useGameStore(s => s.closeChatModal);
   const sendChatMessage = useGameStore(s => s.sendChatMessage);
+  const addChatUserMessage = useGameStore(s => s.addChatUserMessage);
+  const applyChatAdvisorReply = useGameStore(s => s.applyChatAdvisorReply);
+  const setAdvisorJobId = useGameStore(s => s.setAdvisorJobId);
   const clearConversation = useGameStore(s => s.clearConversation);
   const toggleConversationPersistence = useGameStore(s => s.toggleConversationPersistence);
   const setConversationTone = useGameStore(s => s.setConversationTone);
 
   const [inputText, setInputText] = useState('');
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [enqueueError, setEnqueueError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const { job: activeJob } = useJobStatus(activeJobId);
+  const isLoading = !!activeJobId && (!activeJob || ACTIVE_JOB_STATUSES.has(activeJob.status));
 
   const advisor = advisors.find(a => a.id === chatAdvisorId);
   const conversation = chatAdvisorId ? conversations[chatAdvisorId as AdvisorId] : null;
@@ -46,20 +59,81 @@ export function AdvisorChatModal() {
   const isPersistent = conversation?.isPersistent ?? false;
   const tone = (conversation?.tone ?? 'Concise') as AdvisorTone;
 
+  // When the active job completes or fails, apply the reply to the conversation.
+  useEffect(() => {
+    if (!activeJob || !chatAdvisorId) return;
+
+    if (activeJob.status === 'completed') {
+      const result = activeJob.result as AdvisorJobResult | null;
+      if (result?.reply) {
+        applyChatAdvisorReply(chatAdvisorId as AdvisorId, result.reply, result.source);
+      }
+      setActiveJobId(null);
+      setAdvisorJobId(chatAdvisorId as AdvisorId, null);
+    } else if (activeJob.status === 'failed' || activeJob.status === 'cancelled') {
+      setEnqueueError('The advisor could not reply. Please try again.');
+      setActiveJobId(null);
+      setAdvisorJobId(chatAdvisorId as AdvisorId, null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJob?.status]);
+
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isChatLoading]);
+  }, [messages, isLoading]);
 
   if (!showChatModal || !advisor || !chatAdvisorId) return null;
 
   const meta = ADVISOR_META[advisor.id] ?? { avatar: '👤', bio: '' };
 
-  function handleSend(text: string, options?: { isQuickFollowUp?: boolean }) {
+  async function handleSend(text: string, options?: { isQuickFollowUp?: boolean }) {
     const trimmed = text.trim();
-    if (!trimmed || isChatLoading) return;
+    if (!trimmed || isLoading) return;
     setInputText('');
+    setEnqueueError(null);
+
+    // Optimistically add the user message.
+    addChatUserMessage(chatAdvisorId as AdvisorId, trimmed);
+
+    // Build the conversation history snapshot (excluding the message we just added).
+    const history = messages.map(m => ({ role: m.role, text: m.text }));
+
+    try {
+      const response = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobType: 'advisor-conversation',
+          payload: {
+            advisor: {
+              id: advisor!.id,
+              name: advisor!.name,
+              title: advisor!.title,
+              region: advisor!.region,
+              bias: advisor!.bias,
+            },
+            metrics,
+            prompt: trimmed,
+            history,
+            tone,
+            isQuickFollowUp: options?.isQuickFollowUp ?? false,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const job = await response.json() as JobStatusResponse;
+        setActiveJobId(job.id);
+        setAdvisorJobId(chatAdvisorId as AdvisorId, job.id);
+        return;
+      }
+    } catch {
+      // Fall through to synchronous fallback.
+    }
+
+    // Fallback: direct API call (no job queue).
     void sendChatMessage(chatAdvisorId as AdvisorId, trimmed, options);
   }
 
@@ -85,9 +159,11 @@ export function AdvisorChatModal() {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend(inputText);
+      void handleSend(inputText);
     }
   }
+
+  const logEvents = activeJob?.events ?? [];
 
   return (
     <div
@@ -248,13 +324,37 @@ export function AdvisorChatModal() {
               </div>
             </div>
           ))}
-          {isChatLoading && (
+          {isLoading && (
             <div className="flex justify-start">
               <TypingIndicator />
             </div>
           )}
+          {enqueueError && (
+            <p
+              role="alert"
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: 'var(--error)', backgroundColor: 'rgba(255,80,80,0.08)' }}
+            >
+              {enqueueError}
+            </p>
+          )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Live job event feed — only shown while a job is active */}
+        {logEvents.length > 0 && (
+          <div
+            className="px-4 py-2 border-t flex-shrink-0"
+            style={{ borderColor: 'var(--outline-variant)' }}
+          >
+            <p className="text-xs ledger-subtitle mb-1">Live output</p>
+            <JobLogFeed
+              events={logEvents}
+              autoScroll
+              className="max-h-24"
+            />
+          </div>
+        )}
 
         <div
           className="flex flex-wrap gap-1.5 px-4 py-2 border-t flex-shrink-0"
@@ -263,12 +363,12 @@ export function AdvisorChatModal() {
           {QUICK_CHIPS.map(chip => (
             <button
               key={chip}
-              onClick={() => handleSend(chip, { isQuickFollowUp: true })}
-              disabled={isChatLoading}
+              onClick={() => void handleSend(chip, { isQuickFollowUp: true })}
+              disabled={isLoading}
               className="sigil-chip"
               style={{
-                backgroundColor: isChatLoading ? 'var(--surface-container-high)' : 'var(--surface-container-lowest)',
-                cursor: isChatLoading ? 'not-allowed' : 'pointer',
+                backgroundColor: isLoading ? 'var(--surface-container-high)' : 'var(--surface-container-lowest)',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
               }}
             >
               {chip}
@@ -287,13 +387,13 @@ export function AdvisorChatModal() {
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isChatLoading}
+            disabled={isLoading}
             rows={1}
             aria-label="Message input"
           />
           <button
-            onClick={() => handleSend(inputText)}
-            disabled={isChatLoading || !inputText.trim()}
+            onClick={() => void handleSend(inputText)}
+            disabled={isLoading || !inputText.trim()}
             className="wax-button wax-button--primary text-xs px-4 py-2 font-medium flex-shrink-0 self-end"
             aria-label="Send message"
           >
