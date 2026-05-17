@@ -95,7 +95,11 @@ export async function GET(
           });
         }
 
-        enqueue({ type: 'status', status: job.status });
+        enqueue({
+          type: 'status',
+          status: job.status,
+          job: toJobStatusResponse(job, []),
+        });
 
         if (isTerminalJobState(job.status)) break;
       }

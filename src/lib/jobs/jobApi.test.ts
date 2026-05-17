@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { POST as enqueueJobRoute } from '@/app/api/jobs/route';
 import { GET as getJobStatusRoute } from '@/app/api/jobs/[jobId]/route';
+import { GET as getJobEventsRoute } from '@/app/api/jobs/[jobId]/events/route';
 import { POST as cancelJobRoute } from '@/app/api/jobs/[jobId]/cancel/route';
 import {
   __resetInMemoryStoresForTests,
@@ -231,4 +232,41 @@ test('cancel route cancels active job and rejects invalid IDs/non-cancellable st
   assert.equal(missingResponse.status, 404);
   const missingPayload = await missingResponse.json();
   assert.equal(missingPayload.error, 'Job not found');
+});
+
+test('events stream includes job snapshot data in status messages', async () => {
+  const { job } = await enqueueJob({
+    jobType: 'advisor-conversation',
+    payload: { advisorId: 'steward' },
+  });
+
+  setTimeout(() => void transitionJobState(job.id, 'claimed'), 50);
+  setTimeout(() => void transitionJobState(job.id, 'running'), 100);
+  setTimeout(() => void transitionJobState(job.id, 'completed', { result: { transcriptId: 'stream-final' } }), 150);
+
+  const response = await getJobEventsRoute(
+    new Request(`http://localhost/api/jobs/${job.id}/events`),
+    { params: Promise.resolve({ jobId: job.id }) }
+  );
+  assert.equal(response.status, 200);
+
+  const streamBody = await response.text();
+  const messages = streamBody
+    .split('\n\n')
+    .map(chunk => chunk.trim())
+    .filter(Boolean)
+    .map(chunk => chunk.replace(/^data:\s*/, ''))
+    .map(chunk =>
+      JSON.parse(chunk) as {
+        type?: string;
+        status?: string;
+        job?: { id?: string; status?: string; result?: { transcriptId?: string } };
+      });
+
+  const statusMessage = [...messages].reverse().find(message => message.type === 'status');
+  assert.ok(statusMessage, 'expected at least one status message');
+  assert.equal(statusMessage?.status, 'completed');
+  assert.equal(statusMessage?.job?.id, job.id);
+  assert.equal(statusMessage?.job?.status, 'completed');
+  assert.equal(statusMessage?.job?.result?.transcriptId, 'stream-final');
 });

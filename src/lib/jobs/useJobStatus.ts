@@ -46,85 +46,8 @@ export function useJobStatus(jobId: string | null): JobStatusState {
 
     let closed = false;
 
-    // ── SSE path ─────────────────────────────────────────────────────────────
-    if (typeof EventSource !== 'undefined') {
-      let es: EventSource | null = null;
-      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-      let lastStatus: string | null = null;
-
-      const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
-
-      function connect() {
-        if (closed) return;
-
-        es = new EventSource(`/api/jobs/${jobId}/events`);
-
-        es.onopen = () => {
-          if (!closed) setState(prev => ({ ...prev, isConnected: true, error: null }));
-        };
-
-        es.onmessage = (event) => {
-          if (closed) return;
-          try {
-            const data = JSON.parse(event.data) as {
-              type: string;
-              job?: JobStatusResponse;
-              event?: JobEvent;
-              status?: JobStatus;
-            };
-
-            if (data.type === 'snapshot' && data.job) {
-              lastStatus = data.job.status;
-              setState({ job: data.job, isConnected: true, error: null });
-            } else if (data.type === 'event' && data.event) {
-              setState(prev => {
-                if (!prev.job) return prev;
-                return {
-                  ...prev,
-                  job: {
-                    ...prev.job,
-                    events: [...prev.job.events, data.event!],
-                  },
-                };
-              });
-            } else if (data.type === 'status' && data.status) {
-              lastStatus = data.status;
-              setState(prev => {
-                if (!prev.job) return prev;
-                return { ...prev, job: { ...prev.job, status: data.status! } };
-              });
-            }
-          } catch {
-            // Ignore malformed messages.
-          }
-        };
-
-        es.onerror = () => {
-          if (closed) return;
-          es?.close();
-          es = null;
-          // If the server closed the stream after a terminal state, don't reconnect.
-          if (lastStatus && TERMINAL_STATUSES.has(lastStatus)) {
-            setState(prev => ({ ...prev, isConnected: false, error: null }));
-            return;
-          }
-          setState(prev => ({ ...prev, isConnected: false, error: 'Connection lost — reconnecting…' }));
-          // Reconnect after a short delay.
-          reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
-        };
-      }
-
-      connect();
-
-      return () => {
-        closed = true;
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        es?.close();
-      };
-    }
-
-    // ── Polling fallback ─────────────────────────────────────────────────────
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let usingPollingFallback = false;
 
     async function poll() {
       if (closed) return;
@@ -148,6 +71,110 @@ export function useJobStatus(jobId: string | null): JobStatusState {
       }
     }
 
+    function startPollingFallback(errorMessage: string) {
+      if (usingPollingFallback || closed) return;
+      usingPollingFallback = true;
+      setState(prev => ({ ...prev, isConnected: false, error: errorMessage }));
+      void poll();
+    }
+
+    // ── SSE path ─────────────────────────────────────────────────────────────
+    if (typeof EventSource !== 'undefined') {
+      let es: EventSource | null = null;
+      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastStatus: string | null = null;
+      let hasReceivedMessage = false;
+
+      const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+      function connect() {
+        if (closed) return;
+
+        es = new EventSource(`/api/jobs/${jobId}/events`);
+
+        es.onopen = () => {
+          if (!closed) setState(prev => ({ ...prev, isConnected: true, error: null }));
+        };
+
+        es.onmessage = (event) => {
+          if (closed) return;
+          hasReceivedMessage = true;
+          try {
+            const data = JSON.parse(event.data) as {
+              type: string;
+              job?: JobStatusResponse;
+              event?: JobEvent;
+              status?: JobStatus;
+            };
+
+            if (data.type === 'snapshot' && data.job) {
+              lastStatus = data.job.status;
+              setState({ job: data.job, isConnected: true, error: null });
+            } else if (data.type === 'event' && data.event) {
+              setState(prev => {
+                if (!prev.job) return prev;
+                return {
+                  ...prev,
+                  job: {
+                    ...prev.job,
+                    events: [...prev.job.events, data.event!],
+                  },
+                };
+              });
+            } else if (data.type === 'status') {
+              const nextStatus = data.status;
+              if (!nextStatus) return;
+              lastStatus = nextStatus;
+              setState(prev => {
+                if (!prev.job) return prev;
+                if (data.job) {
+                  return {
+                    ...prev,
+                    job: {
+                      ...data.job,
+                      status: nextStatus,
+                      events: prev.job.events,
+                    },
+                  };
+                }
+                return { ...prev, job: { ...prev.job, status: nextStatus } };
+              });
+            }
+          } catch {
+            // Ignore malformed messages.
+          }
+        };
+
+        es.onerror = () => {
+          if (closed) return;
+          es?.close();
+          es = null;
+          // If the server closed the stream after a terminal state, don't reconnect.
+          if (lastStatus && TERMINAL_STATUSES.has(lastStatus)) {
+            setState(prev => ({ ...prev, isConnected: false, error: null }));
+            return;
+          }
+          if (!hasReceivedMessage) {
+            startPollingFallback('Realtime stream unavailable — using polling.');
+            return;
+          }
+          setState(prev => ({ ...prev, isConnected: false, error: 'Connection lost — reconnecting…' }));
+          // Reconnect after a short delay.
+          reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
+        };
+      }
+
+      connect();
+
+      return () => {
+        closed = true;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        if (pollTimer) clearTimeout(pollTimer);
+        es?.close();
+      };
+    }
+
+    // ── Polling fallback ─────────────────────────────────────────────────────
     void poll();
 
     return () => {
