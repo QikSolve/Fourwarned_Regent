@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "neonApiToken",
+      "description": "Neon MCP bearer token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "Neon": {
+      "type": "http",
+      "url": "https://mcp.neon.tech/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:neonApiToken}"
+      }
+    }
+  }
+}
