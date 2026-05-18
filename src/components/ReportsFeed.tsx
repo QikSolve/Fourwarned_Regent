@@ -2,19 +2,15 @@
 
 import { useGameStore } from '@/lib/gameStore';
 import { Report } from '@/lib/gameTypes';
+import { MetricDeltaChips } from '@/components/MetricDeltaChips';
+import { ADVISOR_ICONS, ADVISOR_NAMES } from '@/lib/reports/display';
+import { getProjectedDeltaForReport, getProjectedDeltaForRespondedReports } from '@/lib/reports/projections';
 
 const urgencyStyles = {
   low: { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7', label: 'Low' },
   medium: { bg: '#fef3c7', text: '#92400e', border: '#fcd34d', label: 'Medium' },
   high: { bg: '#fed7aa', text: '#9a3412', border: '#fb923c', label: 'High' },
   critical: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', label: 'CRITICAL' },
-};
-
-const advisorIcons: Record<string, string> = {
-  steward: '⚖️',
-  marshal: '⚔️',
-  merchant: '💼',
-  governor: '📜',
 };
 
 interface ReportItemProps {
@@ -38,13 +34,10 @@ function ReportItem({ report, isActive, onClick }: ReportItemProps) {
     >
       <div className="flex justify-between items-start mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-base">{advisorIcons[report.advisorId]}</span>
+          <span className="text-base">{ADVISOR_ICONS[report.advisorId]}</span>
           <div>
             <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>
-              {report.advisorId === 'steward' ? 'Steward Aldric'
-                : report.advisorId === 'marshal' ? 'Marshal Garrett'
-                : report.advisorId === 'merchant' ? 'Merchant Lyra'
-                : 'Governor Elric'}
+              {ADVISOR_NAMES[report.advisorId]}
             </div>
             <div className="text-xs" style={{ color: '#6b5744' }}>{report.season}, Year {report.year}</div>
           </div>
@@ -78,6 +71,8 @@ export function ReportsFeed() {
   const respondedCount = reports.filter(r => r.status === 'responded').length;
   const totalCount = reports.length;
   const canAdvance = respondedCount > 0 && !isAdvancingTurn;
+  const allAddressed = totalCount > 0 && respondedCount === totalCount;
+  const projectedTotalDelta = getProjectedDeltaForRespondedReports(reports);
 
   return (
     <div className="flex flex-col h-full">
@@ -96,6 +91,28 @@ export function ReportsFeed() {
             <div className="text-2xl mb-2">📜</div>
             <div className="text-sm">No reports this season.</div>
           </div>
+        ) : allAddressed ? (
+          <div className="space-y-2">
+            <div className="rounded border p-3" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
+              <div className="text-xs font-bold text-center" style={{ color: '#8b2635' }}>✅ All advisors heard</div>
+            </div>
+            {reports.map(report => {
+              const selectedChoice = report.choices.find(choice => choice.id === report.selectedChoiceId);
+              const projectedDelta = getProjectedDeltaForReport(report);
+              return (
+                <div
+                  key={report.id}
+                  className="rounded border p-3 cursor-pointer"
+                  style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}
+                  onClick={() => selectReport(report.id)}
+                >
+                  <div className="text-xs font-bold capitalize" style={{ color: '#8b2635' }}>{ADVISOR_NAMES[report.advisorId]}</div>
+                  <div className="text-xs mt-1" style={{ color: '#2c1810' }}>{selectedChoice?.label ?? 'No response selected'}</div>
+                  <MetricDeltaChips delta={projectedDelta} containerClassName="flex flex-wrap gap-1 mt-2" useLegacyStyles />
+                </div>
+              );
+            })}
+          </div>
         ) : (
           reports.map(report => (
             <ReportItem
@@ -109,6 +126,12 @@ export function ReportsFeed() {
       </div>
 
       <div className="mt-3 pt-3 border-t" style={{ borderColor: '#8b6914' }}>
+        {canAdvance && (
+          <div className="mb-2 rounded border p-2" style={{ backgroundColor: '#f4e4c1', borderColor: '#8b6914' }}>
+            <p className="text-[11px] mb-1 text-center" style={{ color: '#6b5744' }}>Pending season net</p>
+            <MetricDeltaChips delta={projectedTotalDelta} containerClassName="flex flex-wrap justify-center gap-1" useLegacyStyles />
+          </div>
+        )}
         <button
           disabled={!canAdvance}
           onClick={advanceTurn}

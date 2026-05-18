@@ -6,6 +6,7 @@ import { generateConsequenceMessages, detectConflicts } from './scribeLogic';
 import { getScribeClarificationText, getScribeConsequenceText, getAdvisorChatReply } from './ai/runtime';
 import { CAMPAIGN_STATE_VERSION, createSnapshot, migrateSnapshot } from './campaign/persistence';
 import { createNewCampaignState } from './campaign/createNewCampaignState';
+import { findNextPendingReportId } from './reports/projections';
 
 // suppress unused type imports - they're used via GameState
 void ({} as Report);
@@ -611,13 +612,18 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     chooseReportOption: (reportId, choiceId) => {
-      set(state => ({
-        reports: state.reports.map(report =>
+      set(state => {
+        const updatedReports = state.reports.map(report =>
           report.id === reportId
-            ? { ...report, selectedChoiceId: choiceId, status: 'responded' }
+            ? { ...report, selectedChoiceId: choiceId, status: 'responded' as const }
             : report
-        ),
-      }));
+        );
+
+        return {
+          reports: updatedReports,
+          activeReportId: findNextPendingReportId(updatedReports, reportId) ?? reportId,
+        };
+      });
       void get().saveCampaignState();
     },
 

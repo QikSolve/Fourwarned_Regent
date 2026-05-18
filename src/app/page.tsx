@@ -53,7 +53,7 @@ export default function Home() {
             <CouncilReports />
           </div>
 
-          <div className="order-2 xl:order-2 flex-1 p-4 ledger-panel ledger-panel--raised">
+          <div id="active-report-panel" className="order-2 xl:order-2 flex-1 p-4 ledger-panel ledger-panel--raised">
             <ActiveReport />
           </div>
         </main>
